@@ -40,29 +40,33 @@ class Colour(Enum):
     BLUE = "bold deep_sky_blue1"
     PURPLE = "bold magenta"
 
-    def __call__(self, value: Any) -> str:
+    def __call__(self, value: str) -> str:
         """Return argument as a string wrapped in colour tags."""
         return f"[{self.value}]{value}[/{self.value}]"
 
-    def print(self, *args: Any, **kwargs: Any) -> None:
+    def print(self, *args: tuple[Any, ...], **kwargs: dict[str, Any]) -> None:
         """Print the arguments wrapped in colour.
 
         colour.red.print("Hello"), or pass arguments to Rich
         print, colour.print(colour.RED("Error:"), "bad").
         """
-        if isinstance(self, Colour):  # type: ignore
+        if isinstance(self, Colour):
             rich_print(*[self(arg) for arg in args], **kwargs)
         else:
             rich_print(self, *args, **kwargs)
 
     # Did not add @staticmethod because this should fail with colour.blue.red_error()
-    def red_error(string: str) -> str:  # type: ignore
+    def red_error(string: str, *, display: bool = False) -> str:  # noqa: N805
         """Highlight Errors in red."""
         pattern = r"(?P<err>\w*Error\w*:?)"
         replacement = r"[bold red]\g<err>[/bold red]"
-        return re.sub(pattern, replacement, string, flags=re.IGNORECASE)
+        output = re.sub(pattern, replacement, string, flags=re.IGNORECASE)
+        if display:
+            Color.print(output)
+        return output
 
-    def remove_ansi(string: str) -> str:  # type: ignore
+    @staticmethod
+    def remove_ansi(string: str) -> str:
         """Remove Ansi Escape Sequences."""
         # From https://stackoverflow.com/a/14693789
         #  by https://stackoverflow.com/users/100297/martijn-pieters
@@ -70,4 +74,5 @@ class Colour(Enum):
         return ansi_escape.sub("", string)
 
 
+# American English alias
 Color = Colour
