@@ -13,9 +13,11 @@
 # limitations under the License.
 """Colour Tests."""
 
+from unittest.mock import Mock, patch
+
 import pytest
 
-from colours import Colour
+from colours import Color, Colour
 
 # Test cases for ANSI escape sequence removal
 ansi_test_cases = {
@@ -93,3 +95,54 @@ test_ids = list(ansi_test_cases.keys())
 def test_remove_ansi(test_input: str, expected_output: str):
     """Test ansi removal from strings."""
     assert Colour.remove_ansi(test_input) == expected_output
+
+
+def test_enum_values():
+    """Test that Enum members have the correct values."""
+    assert Colour.red.value == "red"
+    assert Colour.RED.value == "bold red"
+    assert Colour.default.value == "default"
+
+
+def test_call():
+    """Test that calling an Enum member wraps the string in colour tags."""
+    assert Colour.red("hello") == "[red]hello[/red]"
+    assert Colour.BLUE("world") == "[bold deep_sky_blue1]world[/bold deep_sky_blue1]"
+
+
+@patch("colours.main.rich_print")
+def test_print_member(mock_print: Mock):
+    """Test printing using an Enum member."""
+    Colour.green.print("success")
+    mock_print.assert_called_once_with("[green]success[/green]")
+
+
+@patch("colours.main.rich_print")
+def test_print_static(mock_print: Mock):
+    """Test printing using the class directly (acting as static print)."""
+    Colour.print("plain text")
+    mock_print.assert_called_once_with("plain text")
+
+
+def test_red_error():
+    """Test highlighting errors in red."""
+    text = "This is a ValueError."
+    expected = "This is a [bold red]ValueError[/bold red]."
+    assert Colour.red_error(text) == expected
+
+    text_lower = "syntax error here"
+    expected_lower = "syntax [bold red]error[/bold red] here"
+    assert Colour.red_error(text_lower) == expected_lower
+
+
+@patch("colours.main.rich_print")
+def test_red_error_display(mock_print: Mock):
+    """Test red_error with display=True."""
+    text = "Fatal Error"
+    Colour.red_error(text, display=True)
+    mock_print.assert_called_once_with("Fatal [bold red]Error[/bold red]")
+
+
+def test_alias():
+    """Test that Color is an alias for Colour."""
+    assert Color is Colour
