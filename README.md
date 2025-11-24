@@ -9,7 +9,7 @@ An Enum wrapper around [Rich](https://github.com/Textualize/rich) colours for si
 ## Installation
 
 ```bash
-pip install colours
+pip install git+https://github.com/XanaduAI/colours.git
 ```
 
 ## Requirements
@@ -34,10 +34,13 @@ pip install colours
 from colours import Colour
 
 # Use as a callable to wrap text in colour tags
-Color.print(Colour.red("This is red text"), Colour.GREEN("This is bold green text"))
+Colour.print(Colour.red("This is red text"), Colour.GREEN("This is bold green text"))
 
-# Use the print method
+# Use the print method, mix coloured arguments
 Colour.blue.print("This is blue text", Colour.YELLOW("with bold yellow text"))
+
+# Note: if the base print is a BOLD colour, the mixed colours will also be BOLD, even if it isn't specified.
+Colour.PURPLE.print("This is bold purple text", Colour.orange("with bold orange text"))
 ```
 
 ### Available Colours
@@ -64,21 +67,26 @@ Colour.blue.print("This is blue text", Colour.YELLOW("with bold yellow text"))
 ```python
 from colours import Colour, Color  # Both spellings supported
 
-# Mix coloured arguments
-Colour.print(Colour.RED("Error:"), "Something went wrong")
+# Reset text to the default terminal colour value.
+Colour.RED.print("BoldRedError:", Colour.default("written in the default colour, probably white or black."))
 
-# Highlight errors in text automatically
+# Highlight errors in text automatically for displaying.
 error_msg = "ValueError: invalid input"
 highlighted = Colour.red_error(error_msg)
-print(highlighted)  # "ValueError" will be highlighted in red
+Color.print(highlighted)  # "ValueError" will be highlighted in red
+# You can also print/display it immediately.
+Colour.red_error(error_msg, display = True)
 
 # Remove ANSI escape sequences
-clean_text = Colour.remove_ansi(coloured_string)
+ansi_text = "\x1b[31mHello, Red World!\x1b[0m"
+clean_text = Colour.remove_ansi(ansi_text)
+assert clean_text == "Hello, Red World!" # True
 
 # Rainbow colours
-normal = [c for c in Colour if "bold" not in c.value and c.value != "default"]
-for c in normal:
-    c.print("Hello")
+clrs = [c for c in Colour if "bold" not in c.value and c.value != "default"]
+message = "Hello! This is a message written in cycling rainbow colours for each word.".split()
+n = len(clrs)
+Colour.print(*(clrs[i % n](word) for i, word in enumerate(message)))
 ```
 
 ## API Reference
@@ -97,29 +105,28 @@ for c in normal:
 Both `Colour` and `Color` are available for your preferred spelling:
 
 ```python
-from colours import Colour  # British spelling
+from colours import Colour  # Canadian spelling
 from colours import Color   # American spelling
 ```
 
 ## Development
 
-### Project Structure
 
-```
-colours/
-├── colours/
-│   ├── __init__.py
-│   └── main.py
-├── pyproject.toml
-└── README.md
-```
 
 ### Building from Source
 
+To build the latest version of `colours` first clone the repository through the Code tab above or
 ```bash
-pip install build
-python -m build
+git clone https://github.com/XanaduAI/colours.git
 ```
+We use `uv` to develop `colours`. If you do not have `uv` installed, you can follow their OS-specific instructions [here](https://docs.astral.sh/uv/getting-started/installation/).
+Once you have `uv`, you can install `colours` with the following:
+
+```bash
+uv sync
+```
+
+This will install `colours` as well as all dev dependencies to a new virtual environment in `.venv`.
 
 ## Credits
 
