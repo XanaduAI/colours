@@ -47,8 +47,8 @@ class Colour(Enum):
     def print(self, *args: tuple[Any, ...], **kwargs: dict[str, Any]) -> None:
         """Print the arguments wrapped in colour.
 
-        colour.red.print("Hello"), or pass arguments to Rich
-        print, colour.print(colour.RED("Error:"), "bad").
+        Colour.blue.print("Hello, Blue!"), or pass arguments to Rich
+        print, Colour.print(Colour.RED("RedError:"), "unmodified.").
         """
         if isinstance(self, Colour):
             rich_print(*[self(arg) for arg in args], **kwargs)
