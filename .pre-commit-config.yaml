@@ -20,5 +20,5 @@ repos:
     - id: ty
       name: type check
       entry: uvx ty check . --ignore unresolved-import
-      language: python
+      language: system
       types: [python]
