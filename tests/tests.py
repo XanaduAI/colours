@@ -135,6 +135,20 @@ def test_red_error():
     assert Colour.red_error(text_lower) == expected_lower
 
 
+def test_red_error_from_instance():
+    """Test highlighting errors in red.
+
+    This usecase doesn't make sense, but it is valid.
+    """
+    text = "This is a ValueError."
+    expected = "This is a [bold red]ValueError[/bold red]."
+    assert Colour.blue.red_error(text) == expected
+
+    text_lower = "syntax error here"
+    expected_lower = "syntax [bold red]error[/bold red] here"
+    assert Colour.blue.red_error(text_lower) == expected_lower
+
+
 @patch("colours.main.rich_print")
 def test_red_error_display(mock_print: Mock):
     """Test red_error with display=True."""

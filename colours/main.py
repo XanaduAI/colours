@@ -14,10 +14,43 @@
 """Simplified colours for Python terminal applications."""
 
 import re
+from collections.abc import Callable
 from enum import Enum
-from typing import Any
+from typing import Any, overload
 
 from rich import print as rich_print
+
+
+class _PrintDescriptor:
+    """Descriptor to handle both static and instance print methods.
+
+    When accessed from Colour class (Colour.print), returns rich_print directly.
+    When accessed from Colour instance (Colour.blue.print), returns a function
+    that wraps string arguments in colour tags before printing.
+    """
+
+    @overload
+    def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
+
+    @overload
+    def __get__(self, instance: "Colour", owner: type["Colour"]) -> Callable[..., None]: ...
+
+    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
+        """Return appropriate print function based on access context."""
+        if instance is None:
+            # Called on class: Colour.print(...)
+            return rich_print
+
+        # Called on instance: Colour.blue.print(...)
+        colour: Colour = instance
+
+        def print_colored(*args: Any, **kwargs: Any) -> None:
+            rich_print(
+                *[colour(arg) if isinstance(arg, str) else arg for arg in args],
+                **kwargs,
+            )
+
+        return print_colored
 
 
 class Colour(Enum):
@@ -40,29 +73,20 @@ class Colour(Enum):
     BLUE = "bold deep_sky_blue1"
     PURPLE = "bold magenta"
 
-    def __call__(self, value: str) -> str:
+    def __call__(self, string: Any) -> str:
         """Return argument as a string wrapped in colour tags."""
-        return f"[{self.value}]{value}[/{self.value}]"
+        return f"[{self.value}]{string}[/{self.value}]"
 
-    def print(self, *args: tuple[Any, ...], **kwargs: dict[str, Any]) -> None:
-        """Print the arguments wrapped in colour.
+    print = _PrintDescriptor()
 
-        Colour.blue.print("Hello, Blue!"), or pass arguments to Rich
-        print, Colour.print(Colour.RED("RedError:"), "unmodified.").
-        """
-        if isinstance(self, Colour):
-            rich_print(*[self(arg) for arg in args], **kwargs)
-        else:
-            rich_print(self, *args, **kwargs)
-
-    # Did not add @staticmethod because this should fail with colour.blue.red_error()
-    def red_error(string: str, *, display: bool = False) -> str:  # noqa: N805
+    @staticmethod
+    def red_error(string: str, *, display: bool = False) -> str:
         """Highlight Errors in red."""
         pattern = r"(?P<err>\w*Error\w*:?)"
         replacement = r"[bold red]\g<err>[/bold red]"
-        output = re.sub(pattern, replacement, string, flags=re.IGNORECASE)
+        output: str = re.sub(pattern, replacement, string, flags=re.IGNORECASE)
         if display:
-            Color.print(output)
+            rich_print(output)
         return output
 
     @staticmethod
