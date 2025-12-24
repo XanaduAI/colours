@@ -124,6 +124,63 @@ def test_print_static(mock_print: Mock):
     mock_print.assert_called_once_with("plain text")
 
 
+@patch("colours.main.rich_print")
+def test_print_multiple_strings(mock_print: Mock):
+    """Test printing with multiple string arguments."""
+    Colour.blue.print("hello", "world", "test")
+    mock_print.assert_called_once_with(
+        "[deep_sky_blue1]hello[/deep_sky_blue1]",
+        "[deep_sky_blue1]world[/deep_sky_blue1]",
+        "[deep_sky_blue1]test[/deep_sky_blue1]",
+    )
+
+
+@patch("colours.main.rich_print")
+def test_print_mixed_types(mock_print: Mock):
+    """Test printing with mixed string and non-string arguments."""
+    Colour.red.print("count:", 42, "status:", True, 1.234)
+    mock_print.assert_called_once_with(
+        "[red]count:[/red]",
+        42,
+        "[red]status:[/red]",
+        True,
+        1.234,
+    )
+
+
+@patch("colours.main.rich_print")
+def test_print_with_kwargs(mock_print: Mock):
+    """Test printing with keyword arguments."""
+    Colour.yellow.print("line1", "line2", sep=" | ", end="!\n")
+    mock_print.assert_called_once_with(
+        "[yellow]line1[/yellow]",
+        "[yellow]line2[/yellow]",
+        sep=" | ",
+        end="!\n",
+    )
+
+
+@patch("colours.main.rich_print")
+def test_print_non_string_only(mock_print: Mock):
+    """Test printing with only non-string arguments."""
+    Colour.purple.print(123, 456, 789)
+    mock_print.assert_called_once_with(123, 456, 789)
+
+
+@patch("colours.main.rich_print")
+def test_print_empty_string(mock_print: Mock):
+    """Test printing with empty string."""
+    Colour.green.print("")
+    mock_print.assert_called_once_with("[green][/green]")
+
+
+@patch("colours.main.rich_print")
+def test_print_static_multiple_args(mock_print: Mock):
+    """Test static print with multiple arguments and kwargs."""
+    Colour.print("arg1", 42, "arg2", sep=", ", end="")
+    mock_print.assert_called_once_with("arg1", 42, "arg2", sep=", ", end="")
+
+
 def test_red_error():
     """Test highlighting errors in red."""
     text = "This is a ValueError."
