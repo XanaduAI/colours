@@ -31,7 +31,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: "0.9.10"
+          version: "0.9.18"
           python-version: ${{ matrix.python_version }}
 
       - name: Install Colours and dependencies
