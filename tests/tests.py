@@ -141,10 +141,10 @@ def test_print_mixed_types(mock_print: Mock):
     Colour.red.print("count:", 42, "status:", True, 1.234)
     mock_print.assert_called_once_with(
         "[red]count:[/red]",
-        42,
+        "[red]42[/red]",
         "[red]status:[/red]",
-        True,
-        1.234,
+        "[red]True[/red]",
+        "[red]1.234[/red]",
     )
 
 
@@ -164,7 +164,7 @@ def test_print_with_kwargs(mock_print: Mock):
 def test_print_non_string_only(mock_print: Mock):
     """Test printing with only non-string arguments."""
     Colour.purple.print(123, 456, 789)
-    mock_print.assert_called_once_with(123, 456, 789)
+    mock_print.assert_called_once_with("[magenta]123[/magenta]", "[magenta]456[/magenta]", "[magenta]789[/magenta]")
 
 
 @patch("colours.main.rich_print")

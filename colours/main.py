@@ -45,10 +45,7 @@ class _PrintDescriptor:
         colour: Colour = instance
 
         def print_colored(*args: Any, **kwargs: Any) -> None:
-            rich_print(
-                *[colour(arg) if isinstance(arg, str) else arg for arg in args],
-                **kwargs,
-            )
+            rich_print(*[colour(arg) for arg in args], **kwargs)
 
         return print_colored
 
