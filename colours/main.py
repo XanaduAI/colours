@@ -15,10 +15,22 @@
 
 import re
 from collections.abc import Callable
-from enum import Enum
+from enum import Enum, EnumMeta
 from typing import Any, overload
 
 from rich import print as rich_print
+
+
+class _ColourMeta(EnumMeta):
+    """Metaclass for Colour enum to handle quiet property assignment at class level."""
+
+    def __setattr__(cls, name: str, value: Any) -> None:
+        """Intercept quiet attribute assignment to use descriptor."""
+        if name == "quiet" and hasattr(cls, "_quiet_mode"):
+            # Setting Colour.quiet = value should set _quiet_mode
+            cls._quiet_mode = bool(value)
+        else:
+            super().__setattr__(name, value)
 
 
 class _QuietDescriptor:
@@ -33,7 +45,7 @@ class _QuietDescriptor:
 
     def __set__(self, instance: "Colour | None", value: bool) -> None:
         """Set quiet mode status."""
-        Colour._quiet_mode = bool(value)  # noqa: SLF001
+        Colour._quiet_mode = bool(value)  # noqa: SLF001  # ty:ignore[unresolved-attribute]
 
 
 class _PrintDescriptor:
@@ -69,7 +81,7 @@ class _PrintDescriptor:
         return print_colored
 
 
-class Colour(Enum):
+class Colour(Enum, metaclass=_ColourMeta):
     """Wrap and display text using Rich colours."""
 
     # Normal colours
@@ -88,9 +100,6 @@ class Colour(Enum):
     GREEN = "bold green"
     BLUE = "bold deep_sky_blue1"
     PURPLE = "bold magenta"
-
-    # Class-level flag to suppress printing
-    _quiet_mode = False
 
     def __call__(self, string: Any) -> str:
         """Return argument as a string wrapped in colour tags."""
@@ -125,7 +134,8 @@ class Colour(Enum):
 
 
 # Set the default to allow printing.
-Colour.quiet = False
+# Initialize quiet mode to False (must be set after class definition to avoid being treated as enum member)
+Colour._quiet_mode = False  # noqa: SLF001  # ty:ignore[unresolved-attribute]
 
 # American English alias
 Color = Colour

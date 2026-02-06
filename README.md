@@ -19,12 +19,13 @@ pip install git+https://github.com/XanaduAI/colours.git
 
 ## Features
 
-- **Enum-based API**: Clean, type-safe colour definitions
-- **Multiple colour options**: red, orange, yellow, green, blue, purple
-- **Bold variants**: Uppercase enum values provide bold styling
-- **Flexible printing**: Multiple ways to apply colours to text
-- **Utility functions**: Error highlighting and ANSI escape sequence removal
-- **Rich integration**: Leverages Rich's powerful terminal formatting
+- **Enum-based API**: Clean, type-safe colour definitions.
+- **Multiple colour options**: red, orange, yellow, green, blue, purple.
+- **Bold variants**: Uppercase enum values provide bold styling.
+- **Flexible printing**: Multiple ways to apply colours to text.
+- **Utility functions**: Error highlighting and ANSI escape sequence removal.
+- **Error printing**: Print error messages in red.
+- **Rich integration**: Leverages Rich's powerful terminal formatting.
 
 ## Usage
 
@@ -87,6 +88,9 @@ clrs = [c for c in Colour if isinstance(c.value, str) and "bold" not in c.value 
 message = "Hello! This is a message written in cycling rainbow colours for each word.".split()
 n = len(clrs)
 Colour.print(*(clrs[i % n](word) for i, word in enumerate(message)))
+
+# Printed error messages
+Colour.error("Error: this is an error message.")
 ```
 
 ## API Reference

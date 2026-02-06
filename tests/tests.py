@@ -19,6 +19,15 @@ import pytest
 
 from colours import Color, Colour
 
+
+@pytest.fixture(autouse=True)
+def reset_quiet_mode():
+    """Reset quiet mode to default before each test."""
+    Colour.quiet = False
+    yield
+    Colour.quiet = False
+
+
 # Test cases for ANSI escape sequence removal
 ansi_test_cases = {
     # --- SGR (Select Graphic Rendition) ---
@@ -217,3 +226,70 @@ def test_red_error_display(mock_print: Mock):
 def test_alias():
     """Test that Color is an alias for Colour."""
     assert Color is Colour
+
+
+def test_quiet_default():
+    """Test that quiet mode defaults to False."""
+    assert Colour.quiet is False
+    assert isinstance(Colour.quiet, bool)
+
+
+def test_quiet_class_access():
+    """Test that quiet mode can be accessed and set via class."""
+    Colour.quiet = True
+    assert Colour.quiet is True
+    Colour.quiet = False
+    assert Colour.quiet is False
+
+
+def test_quiet_instance_access():
+    """Test that quiet mode can be accessed via instance."""
+    Colour.quiet = True
+    assert Colour.red.quiet is True
+    assert Colour.blue.quiet is True
+    Colour.quiet = False
+    assert Colour.red.quiet is False
+
+
+def test_quiet_instance_set():
+    """Test that quiet mode can be set via instance."""
+    Colour.red.quiet = True
+    assert Colour.quiet is True
+    assert Colour.green.quiet is True
+    Colour.blue.quiet = False
+    assert Colour.quiet is False
+
+
+@patch("colours.main.rich_print")
+def test_quiet_suppresses_member_print(mock_print: Mock):
+    """Test that quiet mode suppresses printing via Enum member."""
+    Colour.quiet = True
+    Colour.red.print("should not print")
+    mock_print.assert_not_called()
+
+
+@patch("colours.main.rich_print")
+def test_quiet_suppresses_static_print(mock_print: Mock):
+    """Test that quiet mode suppresses printing via class static print."""
+    Colour.quiet = True
+    Colour.print("should not print")
+    mock_print.assert_not_called()
+
+
+@patch("colours.main.rich_print")
+def test_quiet_allows_print_when_false(mock_print: Mock):
+    """Test that printing works when quiet mode is False."""
+    Colour.quiet = False
+    Colour.green.print("should print")
+    mock_print.assert_called_once_with("[green]should print[/green]")
+
+
+@patch("colours.main.rich_print")
+def test_quiet_does_not_suppress_error(mock_print: Mock):
+    """Test that error() always prints regardless of quiet mode."""
+    Colour.quiet = True
+    Colour.error("critical error")
+    mock_print.assert_called_once()
+    # Verify the call contains red error formatting
+    call_args = mock_print.call_args[0][0]
+    assert call_args == "[red]critical [bold red]error[/bold red][/red]"
