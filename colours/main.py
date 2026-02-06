@@ -124,6 +124,10 @@ class Colour(Enum, metaclass=_ColourMeta):
     @staticmethod
     def error(*args: Any, **kwargs: Any) -> None:
         """Error statements are always printed (in red) regardless of quiet setting."""
+        if not args:
+            # Match print/rich_print behavior: no args => just a newline (respecting kwargs)
+            rich_print(**kwargs)
+            return
         string: str = kwargs.get("sep", " ").join([*map(str, args)])
         rich_print(Colour.red(Colour.red_error(string)), **kwargs)
 
