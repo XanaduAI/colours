@@ -43,9 +43,9 @@ class _QuietDescriptor:
         """Return quiet mode status."""
         return owner._quiet_mode  # noqa: SLF001
 
-    def __set__(self, instance: "Colour | None", value: bool) -> None:
+    def __set__(self, instance: "Colour", value: bool) -> None:
         """Set quiet mode status."""
-        Colour._quiet_mode = bool(value)  # noqa: SLF001  # ty:ignore[unresolved-attribute]
+        type(instance)._quiet_mode = bool(value)  # noqa: SLF001
 
 
 class _PrintDescriptor:
@@ -86,6 +86,8 @@ class _PrintDescriptor:
 
 class Colour(Enum, metaclass=_ColourMeta):
     """Wrap and display text using Rich colours."""
+
+    _quiet_mode: bool
 
     # Normal colours
     red = "red"
@@ -142,7 +144,7 @@ class Colour(Enum, metaclass=_ColourMeta):
 
 # Set the default to allow printing.
 # Initialize quiet mode to False (must be set after class definition to avoid being treated as enum member)
-Colour._quiet_mode = False  # noqa: SLF001  # ty:ignore[unresolved-attribute]
+Colour._quiet_mode = False  # noqa: SLF001
 
 # American English alias
 Color = Colour
