@@ -66,9 +66,12 @@ class _PrintDescriptor:
         """Return appropriate print function based on access context."""
         if instance is None:
             # Called on class: Colour.print(...)
-            if owner.quiet:
-                return lambda *args, **kwargs: None  # noqa: ARG005
-            return rich_print
+            def print_colored(*args: Any, **kwargs: Any) -> None:
+                if owner.quiet:
+                    return
+                rich_print(*args, **kwargs)
+
+            return print_colored
 
         # Called on instance: Colour.blue.print(...)
         colour: Colour = instance

@@ -277,6 +277,19 @@ def test_quiet_suppresses_static_print(mock_print: Mock):
 
 
 @patch("colours.main.rich_print")
+def test_quiet_suppresses_delayed_print(mock_print: Mock):
+    """Test that quiet mode suppresses printing even when making a delayed call."""
+    Colour.quiet = False
+    p = Colour.print
+    p("should print")
+    mock_print.assert_called_once()
+    mock_print.reset_mock()
+    Colour.quiet = True
+    p("should not print")
+    mock_print.assert_not_called()
+
+
+@patch("colours.main.rich_print")
 def test_quiet_allows_print_when_false(mock_print: Mock):
     """Test that printing works when quiet mode is False."""
     Colour.quiet = False
