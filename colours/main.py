@@ -119,10 +119,10 @@ class Colour(Enum, metaclass=_ColourMeta):
         return output
 
     @staticmethod
-    def error(*args: Any) -> None:
+    def error(*args: Any, **kwargs: Any) -> None:
         """Error statements are always printed (in red) regardless of quiet setting."""
-        string: str = " ".join([*map(str, args)])
-        rich_print(Colour.red(Colour.red_error(string)))
+        string: str = kwargs.get("sep", " ").join([*map(str, args)])
+        rich_print(Colour.red(Colour.red_error(string)), **kwargs)
 
     @staticmethod
     def remove_ansi(string: str) -> str:

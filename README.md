@@ -103,7 +103,7 @@ Colour.error("Error: this is an error message.")
 - `print(*args, **kwargs)`: Prints coloured text using Rich print.
 - `red_error(string: str) -> str`: Static method to highlight error patterns in red.
 - `remove_ansi(string: str) -> str`: Static method to remove ANSI escape sequences.
-- `error(*args)`: Similar to print, but can only be called on the Enum class and always prints in red, regardless of `quiet` status.
+- `error(*args)`: Always prints in red, regardless of `quiet` status.
 - `quiet`: A property that suppresses `colours` from printing anything.
 
 ## Alias
