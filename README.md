@@ -83,7 +83,7 @@ clean_text = Colour.remove_ansi(ansi_text)
 assert clean_text == "Hello, Red World!" # True
 
 # Rainbow colours
-clrs = [c for c in Colour if "bold" not in c.value and c.value != "default"]
+clrs = [c for c in Colour if isinstance(c.value, str) and "bold" not in c.value and c.value != "default"]
 message = "Hello! This is a message written in cycling rainbow colours for each word.".split()
 n = len(clrs)
 Colour.print(*(clrs[i % n](word) for i, word in enumerate(message)))
@@ -95,10 +95,12 @@ Colour.print(*(clrs[i % n](word) for i, word in enumerate(message)))
 
 #### Methods
 
-- `__call__(value: Any) -> str`: Wraps the value in colour tags
-- `print(*args, **kwargs)`: Prints coloured text using Rich print
-- `red_error(string: str) -> str`: Static method to highlight error patterns in red
-- `remove_ansi(string: str) -> str`: Static method to remove ANSI escape sequences
+- `__call__(value: Any) -> str`: Wraps the value in colour tags.
+- `print(*args, **kwargs)`: Prints coloured text using Rich print.
+- `red_error(string: str) -> str`: Static method to highlight error patterns in red.
+- `remove_ansi(string: str) -> str`: Static method to remove ANSI escape sequences.
+- `error(*args)`: Similar to print, but can only be called on the Enum class and always prints in red, regardless of `quiet` status.
+- `quiet`: A property that suppresses `colours` from printing anything.
 
 ## Alias
 
@@ -110,8 +112,6 @@ from colours import Color   # American spelling
 ```
 
 ## Development
-
-
 
 ### Building from Source
 
