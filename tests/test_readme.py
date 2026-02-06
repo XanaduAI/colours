@@ -23,7 +23,7 @@ def test_readme_code_blocks():
     """Extract and run Python code blocks from README.md to ensure they are valid."""
     readme_path = Path(__file__).parents[1] / "README.md"
     if not readme_path.exists():
-        pytest.skip("README.md not found")
+        pytest.skip("README.md not found")  # ty:ignore[invalid-argument-type, too-many-positional-arguments]
 
     content = readme_path.read_text(encoding="utf-8")
 
