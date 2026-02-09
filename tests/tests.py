@@ -24,9 +24,11 @@ from colours import Color, Colour
 @pytest.fixture(autouse=True)
 def reset_disable_print_mode():
     """Reset COLOURS_DISABLE_PRINT mode to default before each test."""
-    os.environ.pop("COLOURS_DISABLE_PRINT", None)
+    prev_value = os.environ.pop("COLOURS_DISABLE_PRINT", None)
     yield
     os.environ.pop("COLOURS_DISABLE_PRINT", None)
+    if prev_value:
+        os.environ["COLOURS_DISABLE_PRINT"] = prev_value
 
 
 # Test cases for ANSI escape sequence removal

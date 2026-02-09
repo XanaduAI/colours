@@ -22,6 +22,11 @@ from typing import Any, overload
 from rich import print as rich_print
 
 
+def is_quiet() -> bool:
+    """Determine if the COLOURS_DISABLE_PRINT environment variable is set to `true`."""
+    return str(os.getenv("COLOURS_DISABLE_PRINT")).lower() in {"1", "true"}
+
+
 class _PrintDescriptor:
     """Descriptor to handle both static and instance print methods.
 
@@ -41,7 +46,7 @@ class _PrintDescriptor:
         if instance is None:
             # Called on class: Colour.print(...)
             def print_colored(*args: Any, **kwargs: Any) -> None:
-                if os.getenv("COLOURS_DISABLE_PRINT") == "true":
+                if is_quiet():
                     return
                 rich_print(*args, **kwargs)
 
@@ -51,7 +56,7 @@ class _PrintDescriptor:
         colour: Colour = instance
 
         def print_colored(*args: Any, **kwargs: Any) -> None:
-            if os.getenv("COLOURS_DISABLE_PRINT") == "true":
+            if is_quiet():
                 return
             rich_print(*[colour(arg) for arg in args], **kwargs)
 

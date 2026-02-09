@@ -26,6 +26,7 @@ pip install git+https://github.com/XanaduAI/colours.git
 - **Utility functions**: Error highlighting and ANSI escape sequence removal.
 - **Error printing**: Print error messages in red.
 - **Rich integration**: Leverages Rich's powerful terminal formatting.
+- **Disable printing**: Setting the environment variable `COLOURS_DISABLE_PRINT` to `true` will disable general printing.
 
 ## Usage
 
