@@ -13,6 +13,7 @@
 # limitations under the License.
 """Colour Tests."""
 
+import os
 from unittest.mock import Mock, patch
 
 import pytest
@@ -21,15 +22,15 @@ from colours import Color, Colour
 
 
 @pytest.fixture(autouse=True)
-def reset_quiet_mode():
-    """Reset quiet mode to default before each test."""
-    Colour.quiet = False
+def reset_disable_print_mode():
+    """Reset COLOURS_DISABLE_PRINT mode to default before each test."""
+    os.environ.pop("COLOURS_DISABLE_PRINT", None)
     yield
-    Colour.quiet = False
+    os.environ.pop("COLOURS_DISABLE_PRINT", None)
 
 
 # Test cases for ANSI escape sequence removal
-ansi_test_cases = {
+ansi_test_cases: dict[str, dict[str, str]] = {
     # --- SGR (Select Graphic Rendition) ---
     "simple_color": {
         "input": "\x1b[31mHello, Red World!\x1b[0m",
@@ -228,81 +229,58 @@ def test_alias():
     assert Color is Colour
 
 
-def test_quiet_default():
-    """Test that quiet mode defaults to False."""
-    assert Colour.quiet is False
-    assert isinstance(Colour.quiet, bool)
-
-
-def test_quiet_class_access():
-    """Test that quiet mode can be accessed and set via class."""
-    Colour.quiet = True
-    assert Colour.quiet is True
-    Colour.quiet = False
-    assert Colour.quiet is False
-
-
-def test_quiet_instance_access():
-    """Test that quiet mode can be accessed via instance."""
-    Colour.quiet = True
-    assert Colour.red.quiet is True
-    assert Colour.blue.quiet is True
-    Colour.quiet = False
-    assert Colour.red.quiet is False
-
-
-def test_quiet_instance_set():
-    """Test that quiet mode can be set via instance."""
-    Colour.red.quiet = True
-    assert Colour.quiet is True
-    assert Colour.green.quiet is True
-    Colour.blue.quiet = False
-    assert Colour.quiet is False
+def test_disable_print_default():
+    """Test that COLOURS_DISABLE_PRINT mode defaults to unset (False) but can be set."""
+    assert not os.getenv("COLOURS_DISABLE_PRINT")
+    os.environ["COLOURS_DISABLE_PRINT"] = "true"
+    assert os.getenv("COLOURS_DISABLE_PRINT")
 
 
 @patch("colours.main.rich_print")
-def test_quiet_suppresses_member_print(mock_print: Mock):
-    """Test that quiet mode suppresses printing via Enum member."""
-    Colour.quiet = True
+def test_disable_print_suppresses_printing(mock_print: Mock):
+    """Test that COLOURS_DISABLE_PRINT mode suppresses general printing."""
+    assert not os.getenv("COLOURS_DISABLE_PRINT")
+    os.environ["COLOURS_DISABLE_PRINT"] = "true"
+    Colour.print("should not print")
     Colour.red.print("should not print")
     mock_print.assert_not_called()
 
 
 @patch("colours.main.rich_print")
-def test_quiet_suppresses_static_print(mock_print: Mock):
-    """Test that quiet mode suppresses printing via class static print."""
-    Colour.quiet = True
-    Colour.print("should not print")
-    mock_print.assert_not_called()
-
-
-@patch("colours.main.rich_print")
-def test_quiet_suppresses_delayed_print(mock_print: Mock):
-    """Test that quiet mode suppresses printing even when making a delayed call."""
-    Colour.quiet = False
+def test_disable_print_suppresses_delayed_print(mock_print: Mock):
+    """Test that COLOURS_DISABLE_PRINT mode suppresses printing even when making a delayed call."""
+    assert not os.getenv("COLOURS_DISABLE_PRINT")
     p = Colour.print
     p("should print")
     mock_print.assert_called_once()
     mock_print.reset_mock()
-    Colour.quiet = True
+    os.environ["COLOURS_DISABLE_PRINT"] = "true"
     p("should not print")
     mock_print.assert_not_called()
 
 
 @patch("colours.main.rich_print")
-def test_quiet_allows_print_when_false(mock_print: Mock):
-    """Test that printing works when quiet mode is False."""
-    Colour.quiet = False
+def test_disable_print_allows_print_when_false(mock_print: Mock):
+    """Test that printing works when disable_print mode is False."""
+    assert not os.getenv("COLOURS_DISABLE_PRINT")
     Colour.green.print("should print")
     mock_print.assert_called_once_with("[green]should print[/green]")
 
 
 @patch("colours.main.rich_print")
-def test_quiet_does_not_suppress_error(mock_print: Mock):
-    """Test that error() always prints regardless of quiet mode."""
-    Colour.quiet = True
+def test_disable_print_does_not_suppress_error(mock_print: Mock):
+    """Test that error() always prints regardless of disable_print mode."""
+    assert not os.getenv("COLOURS_DISABLE_PRINT")
+    os.environ["COLOURS_DISABLE_PRINT"] = "true"
     Colour.error("critical error")
     mock_print.assert_called_once()
     # Verify the call contains red error formatting
     call_args = mock_print.call_args[0][0]
     assert call_args == "[red]critical [bold red]error[/bold red][/red]"
+
+
+@patch("colours.main.rich_print")
+def test_error_without_args(mock_print: Mock):
+    """Test that Colour.error doesn't fail without args."""
+    Colour.error(sep=" ", end="\n")
+    mock_print.assert_called_once_with(sep=" ", end="\n")

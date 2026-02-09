@@ -13,39 +13,13 @@
 # limitations under the License.
 """Simplified colours for Python terminal applications."""
 
+import os
 import re
 from collections.abc import Callable
-from enum import Enum, EnumMeta
+from enum import Enum
 from typing import Any, overload
 
 from rich import print as rich_print
-
-
-class _ColourMeta(EnumMeta):
-    """Metaclass for Colour enum to handle quiet property assignment at class level."""
-
-    def __setattr__(cls, name: str, value: Any) -> None:
-        """Intercept quiet attribute assignment to use descriptor."""
-        if name == "quiet" and hasattr(cls, "_quiet_mode"):
-            # Setting Colour.quiet = value should set _quiet_mode
-            cls._quiet_mode = bool(value)
-        else:
-            super().__setattr__(name, value)
-
-
-class _QuietDescriptor:
-    """Descriptor to handle class-level quiet property.
-
-    Allows both Colour.quiet and Colour.red.quiet to access/set _quiet_mode.
-    """
-
-    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> bool:
-        """Return quiet mode status."""
-        return owner._quiet_mode  # noqa: SLF001
-
-    def __set__(self, instance: "Colour", value: bool) -> None:
-        """Set quiet mode status."""
-        type(instance)._quiet_mode = bool(value)  # noqa: SLF001
 
 
 class _PrintDescriptor:
@@ -67,7 +41,7 @@ class _PrintDescriptor:
         if instance is None:
             # Called on class: Colour.print(...)
             def print_colored(*args: Any, **kwargs: Any) -> None:
-                if owner.quiet:
+                if os.getenv("COLOURS_DISABLE_PRINT") == "true":
                     return
                 rich_print(*args, **kwargs)
 
@@ -77,17 +51,15 @@ class _PrintDescriptor:
         colour: Colour = instance
 
         def print_colored(*args: Any, **kwargs: Any) -> None:
-            if owner.quiet:
+            if os.getenv("COLOURS_DISABLE_PRINT") == "true":
                 return
             rich_print(*[colour(arg) for arg in args], **kwargs)
 
         return print_colored
 
 
-class Colour(Enum, metaclass=_ColourMeta):
+class Colour(Enum):
     """Wrap and display text using Rich colours."""
-
-    _quiet_mode: bool
 
     # Normal colours
     red = "red"
@@ -111,7 +83,6 @@ class Colour(Enum, metaclass=_ColourMeta):
         return f"[{self.value}]{string}[/{self.value}]"
 
     print = _PrintDescriptor()
-    quiet = _QuietDescriptor()
 
     @staticmethod
     def red_error(string: str, *, display: bool = False) -> str:
@@ -125,9 +96,8 @@ class Colour(Enum, metaclass=_ColourMeta):
 
     @staticmethod
     def error(*args: Any, **kwargs: Any) -> None:
-        """Error statements are always printed (in red) regardless of quiet setting."""
+        """Error statements are always printed (in red) regardless of COLOURS_DISABLE_PRINT setting."""
         if not args:
-            # Match print/rich_print behavior: no args => just a newline (respecting kwargs)
             rich_print(**kwargs)
             return
         string: str = kwargs.get("sep", " ").join([*map(str, args)])
@@ -141,10 +111,6 @@ class Colour(Enum, metaclass=_ColourMeta):
         ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         return ansi_escape.sub("", string)
 
-
-# Set the default to allow printing.
-# Initialize quiet mode to False (must be set after class definition to avoid being treated as enum member)
-Colour._quiet_mode = False  # noqa: SLF001
 
 # American English alias
 Color = Colour
