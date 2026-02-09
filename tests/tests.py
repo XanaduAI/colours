@@ -253,8 +253,9 @@ def test_disable_print_suppresses_delayed_print(mock_print: Mock):
     """Test that COLOURS_DISABLE_PRINT mode suppresses printing even when making a delayed call."""
     assert not os.getenv("COLOURS_DISABLE_PRINT")
     p = Colour.print
-    p("should print")
-    mock_print.assert_called_once()
+    s = "should print"
+    p(s)
+    mock_print.assert_called_once_with(s)
     mock_print.reset_mock()
     os.environ["COLOURS_DISABLE_PRINT"] = "true"
     p("should not print")
