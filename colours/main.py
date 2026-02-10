@@ -13,18 +13,45 @@
 # limitations under the License.
 """Simplified colours for Python terminal applications."""
 
-import os
+import logging
+import logging.config
 import re
+import shutil
 from collections.abc import Callable
 from enum import Enum
 from typing import Any, overload
 
 from rich import print as rich_print
+from rich.logging import RichHandler
+
+width, height = shutil.get_terminal_size(fallback=(128, 32))
 
 
-def is_quiet() -> bool:
-    """Determine if the COLOURS_DISABLE_PRINT environment variable is set to `true`."""
-    return str(os.getenv("COLOURS_DISABLE_PRINT")).lower() in {"1", "true"}
+class ColourHandler(RichHandler):
+    """A custom instance of the RichHandler class."""
+
+    def __init__(self) -> None:
+        super().__init__(show_time=False, tracebacks_code_width=width, markup=True, show_path=False, show_level=False)
+
+
+config: dict[str, Any] = {
+    "loggers": {
+        "colours": {
+            "level": logging.INFO,
+            "handlers": ["rich"],
+            "propagate": "no",
+        }
+    },
+    "handlers": {
+        "rich": {
+            "class": ColourHandler,
+        }
+    },
+    "version": 1,
+    "disable_existing_loggers": False,
+}
+logging.config.dictConfig(config)
+colour_logger = logging.getLogger("colours")
 
 
 class _PrintDescriptor:
@@ -44,23 +71,28 @@ class _PrintDescriptor:
     def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
         """Return appropriate print function based on access context."""
         if instance is None:
-            # Called on class: Colour.print(...)
-            def print_colored(*args: Any, **kwargs: Any) -> None:
-                if is_quiet():
-                    return
-                rich_print(*args, **kwargs)
+            return lambda *args, **kwargs: rich_print(*args, **kwargs)  # noqa: PLW0108
+        return lambda *args, **kwargs: rich_print(*map(instance, args), **kwargs)
 
-            return print_colored
 
-        # Called on instance: Colour.blue.print(...)
-        colour: Colour = instance
+class _LogDescriptor:
+    """Descriptor to handle both static and instance log methods for a given log level."""
 
-        def print_colored(*args: Any, **kwargs: Any) -> None:
-            if is_quiet():
-                return
-            rich_print(*[colour(arg) for arg in args], **kwargs)
+    def __init__(self, level: str):
+        self.level = level
 
-        return print_colored
+    @overload
+    def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
+
+    @overload
+    def __get__(self, instance: "Colour", owner: type["Colour"]) -> Callable[..., None]: ...
+
+    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
+        """Return appropriate log function based on access context."""
+        log_method = getattr(colour_logger, self.level)
+        if instance is None:
+            return lambda *args, **kwargs: log_method(*args, **kwargs)  # noqa: PLW0108
+        return lambda *args, **kwargs: log_method(*map(instance, args), **kwargs, extra={"highlighter": None})
 
 
 class Colour(Enum):
@@ -88,6 +120,8 @@ class Colour(Enum):
         return f"[{self.value}]{string}[/{self.value}]"
 
     print = _PrintDescriptor()
+    info = _LogDescriptor("info")
+    debug = _LogDescriptor("debug")
 
     @staticmethod
     def red_error(string: str, *, display: bool = False) -> str:
@@ -100,13 +134,14 @@ class Colour(Enum):
         return output
 
     @staticmethod
+    def warning(*args: Any, **kwargs: Any) -> None:
+        """Warning logs are always printed in orange."""
+        colour_logger.warning(*map(Colour.orange, args), **kwargs, extra={"highlighter": None})
+
+    @staticmethod
     def error(*args: Any, **kwargs: Any) -> None:
-        """Error statements are always printed (in red) regardless of COLOURS_DISABLE_PRINT setting."""
-        if not args:
-            rich_print(**kwargs)
-            return
-        string: str = kwargs.get("sep", " ").join([*map(str, args)])
-        rich_print(Colour.red(Colour.red_error(string)), **kwargs)
+        """Error logs are always printed in red."""
+        colour_logger.error(*map(Colour.red, args), **kwargs, extra={"highlighter": None})
 
     @staticmethod
     def remove_ansi(string: str) -> str:

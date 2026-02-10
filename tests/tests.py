@@ -231,59 +231,44 @@ def test_alias():
     assert Color is Colour
 
 
-def test_disable_print_default():
-    """Test that COLOURS_DISABLE_PRINT mode defaults to unset (False) but can be set."""
-    assert not os.getenv("COLOURS_DISABLE_PRINT")
-    os.environ["COLOURS_DISABLE_PRINT"] = "true"
-    assert os.getenv("COLOURS_DISABLE_PRINT")
+@patch("colours.main.colour_logger")
+def test_debug_log_static(mock_logger: Mock):
+    """Test Colour.debug logs debug messages using logger."""
+    Colour.debug("debug message")
+    mock_logger.debug.assert_called_once_with("debug message")
 
 
-@patch("colours.main.rich_print")
-def test_disable_print_suppresses_printing(mock_print: Mock):
-    """Test that COLOURS_DISABLE_PRINT mode suppresses general printing."""
-    assert not os.getenv("COLOURS_DISABLE_PRINT")
-    os.environ["COLOURS_DISABLE_PRINT"] = "true"
-    Colour.print("should not print")
-    Colour.red.print("should not print")
-    mock_print.assert_not_called()
+@patch("colours.main.colour_logger")
+def test_debug_log_member(mock_logger: Mock):
+    """Test Colour.blue.debug logs coloured debug messages."""
+    Colour.blue.debug("blue debug")
+    mock_logger.debug.assert_called_once_with("[deep_sky_blue1]blue debug[/deep_sky_blue1]", extra={"highlighter": None})
 
 
-@patch("colours.main.rich_print")
-def test_disable_print_suppresses_delayed_print(mock_print: Mock):
-    """Test that COLOURS_DISABLE_PRINT mode suppresses printing even when making a delayed call."""
-    assert not os.getenv("COLOURS_DISABLE_PRINT")
-    p = Colour.print
-    s = "should print"
-    p(s)
-    mock_print.assert_called_once_with(s)
-    mock_print.reset_mock()
-    os.environ["COLOURS_DISABLE_PRINT"] = "true"
-    p("should not print")
-    mock_print.assert_not_called()
+@patch("colours.main.colour_logger")
+def test_info_log_static(mock_logger: Mock):
+    """Test Colour.info logs info messages using logger."""
+    Colour.info("info message")
+    mock_logger.info.assert_called_once_with("info message")
 
 
-@patch("colours.main.rich_print")
-def test_disable_print_allows_print_when_false(mock_print: Mock):
-    """Test that printing works when disable_print mode is False."""
-    assert not os.getenv("COLOURS_DISABLE_PRINT")
-    Colour.green.print("should print")
-    mock_print.assert_called_once_with("[green]should print[/green]")
+@patch("colours.main.colour_logger")
+def test_info_log_member(mock_logger: Mock):
+    """Test Colour.blue.info logs coloured info messages."""
+    Colour.blue.info("blue info")
+    mock_logger.info.assert_called_once_with("[deep_sky_blue1]blue info[/deep_sky_blue1]", extra={"highlighter": None})
 
 
-@patch("colours.main.rich_print")
-def test_disable_print_does_not_suppress_error(mock_print: Mock):
-    """Test that error() always prints regardless of disable_print mode."""
-    assert not os.getenv("COLOURS_DISABLE_PRINT")
-    os.environ["COLOURS_DISABLE_PRINT"] = "true"
+@patch("colours.main.colour_logger")
+def test_warning_log(mock_logger: Mock):
+    """Test Colour.warning logs warning messages in orange."""
+    Colour.warning("warn message")
+    mock_logger.warning.assert_called_once_with("[orange1]warn message[/orange1]", extra={"highlighter": None})
+
+
+@patch("colours.main.colour_logger")
+def test_error_log(mock_logger: Mock):
+    """Test Colour.error logs error messages in red with error highlighting."""
     Colour.error("critical error")
-    mock_print.assert_called_once()
-    # Verify the call contains red error formatting
-    call_args = mock_print.call_args[0][0]
-    assert call_args == "[red]critical [bold red]error[/bold red][/red]"
-
-
-@patch("colours.main.rich_print")
-def test_error_without_args(mock_print: Mock):
-    """Test that Colour.error doesn't fail without args."""
-    Colour.error(sep=" ", end="\n")
-    mock_print.assert_called_once_with(sep=" ", end="\n")
+    expected = "[red]critical [bold red]error[/bold red][/red]"
+    mock_logger.error.assert_called_once_with(expected, extra={"highlighter": None})
