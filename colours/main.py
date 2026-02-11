@@ -79,7 +79,7 @@ class _PredefinedLogDescriptor:
     """Descriptor to handle both static and instance log methods for a given log level."""
 
     def __init__(self, level: str):
-        self.level: str = str(level)
+        self.level: str = level
         self.loglevel: int = getattr(logging, self.level.upper())
 
     @overload

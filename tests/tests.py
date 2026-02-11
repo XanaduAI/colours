@@ -32,7 +32,7 @@ def mock_print():
 @pytest.fixture
 def mock_logger():
     """Mock the logger for testing."""
-    with patch("colours.main.colour_logger") as lg:
+    with patch("colours.main.LOGGER") as lg:
         yield lg
 
 
@@ -232,30 +232,26 @@ class TestLogs:
     """Test the Colour logging methods."""
 
     @staticmethod
-    def test_debug_log_static() -> None:
+    def test_debug_log_static(mock_logger: Mock) -> None:
         """Test Colour.debug logs coloured debug messages."""
-        with patch("colours.main.colour_logger") as mock_logger:
-            Colour.debug("basic debug")
-            mock_logger.debug.assert_called_once_with("basic debug")
+        Colour.debug("basic debug")
+        mock_logger.debug.assert_called_once_with("basic debug")
 
-        with patch("colours.main.colour_logger._log") as mock_logger:
+        with patch("colours.main.LOGGER._log") as mock__log:
             Colour.debug("blue debug")
             # Assert that the _log call is not actually invoked because of the logging level setting.
-            mock_logger._log.assert_not_called()  # noqa: SLF001,
+            mock__log._log.assert_not_called()  # noqa: SLF001,
 
     @staticmethod
-    def test_debug_log_member() -> None:
+    def test_debug_log_member(mock_logger: Mock) -> None:
         """Test Colour.blue.debug logs coloured debug messages."""
-        with patch("colours.main.colour_logger") as mock_logger:
-            Colour.blue.debug("blue debug")
-            mock_logger.debug.assert_called_once_with(
-                "[deep_sky_blue1]blue debug[/deep_sky_blue1]", extra={"highlighter": None}
-            )
+        Colour.blue.debug("blue debug")
+        mock_logger.debug.assert_called_once_with("[deep_sky_blue1]blue debug[/deep_sky_blue1]", extra={"highlighter": None})
 
-        with patch("colours.main.colour_logger._log") as mock_logger:
+        with patch("colours.main.LOGGER._log") as mock__log:
             Colour.blue.debug("blue debug")
             # Assert that the _log call is not actually invoked because of the logging level setting.
-            mock_logger._log.assert_not_called()  # noqa: SLF001
+            mock__log._log.assert_not_called()  # noqa: SLF001
 
     @staticmethod
     def test_info_log_static(mock_logger: Mock) -> None:
@@ -307,7 +303,7 @@ class TestLogs:
     def test_changing_log_level() -> None:
         """Test that setting the log level above critical causes no logs to display."""
         Colour.set_log_level(100)
-        with patch("colours.main.colour_logger._log") as mock_logger:
+        with patch("colours.main.LOGGER._log") as mock_logger:
             Colour.debug("a message")
             Colour.red.debug("a message")
             Colour.log("info", "a message")
@@ -318,7 +314,7 @@ class TestLogs:
             mock_logger.assert_not_called()
 
         Colour.set_log_level(1)
-        with patch("colours.main.colour_logger._log") as mock_logger:
+        with patch("colours.main.LOGGER._log") as mock_logger:
             Colour.debug("a message")
             Colour.red.debug("a message")
             Colour.log("info", "a message")
