@@ -17,7 +17,9 @@ import logging
 import re
 import shutil
 from collections.abc import Callable
+from contextlib import suppress
 from enum import Enum
+from functools import wraps
 from typing import Any, overload
 
 from rich import print as rich_print
@@ -29,13 +31,20 @@ width, _ = shutil.get_terminal_size()
 class ColourHandler(RichHandler):
     """A custom instance of the RichHandler class."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        show_level: bool = False,
+        show_path: bool = False,
+        show_time: bool = False,
+        level: int = logging.INFO,
+    ) -> None:
         super().__init__(
-            show_time=False,
-            tracebacks_code_width=int(width * 0.9),
             markup=True,
-            show_path=False,
-            show_level=False,
+            level=level,
+            show_time=show_time,
+            tracebacks_code_width=int(width * 0.9),
+            show_path=show_path,
+            show_level=show_level,
         )
 
 
@@ -67,12 +76,36 @@ class _PrintDescriptor:
         if instance is None:
             return rich_print
 
+        @wraps(rich_print)
         def colour_print(*args, **kwargs) -> None:  # noqa: ANN002, ANN003
             rich_print(*map(instance, args), **kwargs)
 
-        colour_print.__name__ = rich_print.__name__
-        colour_print.__doc__ = rich_print.__doc__
         return colour_print
+
+
+def _parse_log_level(level: str) -> int:
+    """Parse a string log level and raise ValueError if invalid.
+
+    Args:
+        level: A string log level name (e.g., 'DEBUG', 'INFO').
+
+    Returns:
+        The integer log level.
+
+    Raises:
+        ValueError: If the string level name is not a valid logging level.
+
+    """
+    with suppress(AttributeError):
+        return getattr(logging, level.upper())
+    valid_levels = ", ".join(
+        sorted(
+            [name for name in dir(logging) if name.isupper() and isinstance(getattr(logging, name), int)],
+            key=lambda attr: getattr(logging, attr),
+        )
+    )
+    msg = f"Invalid log level '{level}'. Valid levels are: {valid_levels}"
+    raise ValueError(msg)
 
 
 class _PredefinedLogDescriptor:
@@ -80,7 +113,7 @@ class _PredefinedLogDescriptor:
 
     def __init__(self, level: str):
         self.level: str = level
-        self.loglevel: int = getattr(logging, self.level.upper())
+        self.loglevel: int = _parse_log_level(level)
 
     @overload
     def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
@@ -91,25 +124,20 @@ class _PredefinedLogDescriptor:
     def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
         """Return appropriate log function based on access context."""
         log_method = getattr(LOGGER, self.level)
-        doc_string = f"""Log 'msg % args' with severity '{self.level.upper()}'.\n
-To pass exception information, use the keyword argument exc_info with a true value, e.g.
-Colour{"." + instance.value if instance is not None else ""}.{self.level}("Houston, we have a %s", "problem", exc_info=True)"""
         if instance is None:
 
+            @wraps(log_method)
             def log_func(msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
                 if LOGGER.isEnabledFor(self.loglevel):
                     log_method(msg, *args, **kwargs)
 
-            log_func.__name__ = self.level
-            log_func.__doc__ = doc_string
             return log_func
 
+        @wraps(log_method)
         def log_func(msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
             if LOGGER.isEnabledFor(self.loglevel):
-                log_method(instance(msg), *args, **{**kwargs, "extra": kwargs.get("extra", {"highlighter": None})})
+                log_method(instance(msg), *args, **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})})
 
-        log_func.__name__ = self.level
-        log_func.__doc__ = doc_string
         return log_func
 
 
@@ -124,13 +152,12 @@ class _VersatileLogDescriptor:
 
     def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
         """Return appropriate log function based on access context."""
-        doc_string = f"""Log 'msg % args' with the integer severity 'level'.\n
-To pass exception information, use the keyword argument exc_info with a true value, e.g.
-Colour{"." + instance.value if instance is not None else ""}.log(level, "We have a %s", "mysterious problem", exc_info=True)"""
         if instance is None:
 
+            @wraps(LOGGER.log)
             def log(level: int | str, msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-                loglevel: int = getattr(logging, level.upper()) if isinstance(level, str) else level
+                # Use instance method to get proper error handling
+                loglevel: int = _parse_log_level(level) if isinstance(level, str) else level
                 if LOGGER.isEnabledFor(loglevel):
                     LOGGER.log(
                         loglevel,
@@ -139,20 +166,19 @@ Colour{"." + instance.value if instance is not None else ""}.log(level, "We have
                         **kwargs,
                     )
 
-            log.__doc__ = doc_string
             return log
 
+        @wraps(LOGGER.log)
         def log(level: int | str, msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-            loglevel: int = getattr(logging, level.upper()) if isinstance(level, str) else level
+            loglevel: int = _parse_log_level(level) if isinstance(level, str) else level
             if LOGGER.isEnabledFor(loglevel):
                 LOGGER.log(
                     loglevel,
                     instance(msg),
                     *args,
-                    **{**kwargs, "extra": kwargs.get("extra", {"highlighter": None})},
+                    **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})},
                 )
 
-        log.__doc__ = doc_string
         return log
 
 
@@ -214,7 +240,7 @@ class Colour(Enum):
             LOGGER.warning(
                 Colour.orange(msg),
                 *args,
-                **{**kwargs, "extra": kwargs.get("extra", {"highlighter": None})},
+                **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})},
             )
 
     @staticmethod
@@ -233,7 +259,7 @@ class Colour(Enum):
             LOGGER.error(
                 Colour.red_error(Colour.red(msg)),
                 *args,
-                **{**kwargs, "extra": kwargs.get("extra", {"highlighter": None})},
+                **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})},
             )
 
     @staticmethod
@@ -251,7 +277,7 @@ class Colour(Enum):
             LOGGER.critical(
                 Colour.RED(msg),
                 *args,
-                **{**kwargs, "extra": kwargs.get("extra", {"highlighter": None})},
+                **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})},
             )
 
     @staticmethod
@@ -264,8 +290,51 @@ class Colour(Enum):
 
     @staticmethod
     def set_log_level(level: int | str = logging.INFO) -> None:
-        """Set the logging level of the colours logger."""
-        LOGGER.setLevel(getattr(logging, level.upper()) if isinstance(level, str) else level)
+        """Set the logging level of the colours logger.
+
+        Args:
+            level: An integer log level or string name (e.g., 'DEBUG', 'INFO').
+                   Defaults to logging.INFO (20).
+
+        Raises:
+            ValueError: If a string level name is not a valid logging level.
+
+        Note:
+            This affects ALL log calls library-wide and in any client code
+            using the `xanadu.colours` logger. This is a global setting.
+
+        """
+        LOGGER.setLevel(_parse_log_level(level) if isinstance(level, str) else level)
+
+    @staticmethod
+    def modify_log_format(
+        show_level: bool = False,
+        show_path: bool = False,
+        show_time: bool = False,
+    ) -> None:
+        """Modify how the logs are displayed.
+
+        Args:
+            show_level: shows the log level (DEBUG, INFO, etc.).
+            show_path: shows where the log was generated from.
+            show_time: shows the local time when the log was generated.
+
+        Example:
+            Colour.modify_log_format(show_level=True, show_time=True)
+
+        """
+        # Remove all existing handlers
+        for handler in LOGGER.handlers[:]:
+            LOGGER.removeHandler(handler)
+        # Add a new handler with the updated format
+        LOGGER.addHandler(
+            ColourHandler(
+                show_level=show_level,
+                show_path=show_path,
+                show_time=show_time,
+                level=LOGGER.level,
+            )
+        )
 
 
 # American English alias

@@ -33,6 +33,7 @@ def mock_print():
 def mock_logger():
     """Mock the logger for testing."""
     with patch("colours.main.LOGGER") as lg:
+        lg.isEnabledFor.return_value = True
         yield lg
 
 
@@ -342,3 +343,165 @@ class TestLogs:
         assert mock_logger.warning.call_count == 1
         assert mock_logger.error.call_count == 1
         assert mock_logger.critical.call_count == 1
+
+
+class TestLogLevelValidation:
+    """Test log level validation and error handling."""
+
+    @staticmethod
+    def test_set_log_level_invalid_string() -> None:
+        """Test that invalid log level strings raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid log level 'INVALID'"):
+            Colour.set_log_level("INVALID")
+
+    @staticmethod
+    def test_set_log_level_valid_string() -> None:
+        """Test that valid log level strings are accepted."""
+        # These should not raise
+        for level_str in ["notset", "debug", "info", "warning", "error", "critical"]:
+            Colour.set_log_level(level_str)
+
+    @staticmethod
+    def test_log_method_invalid_level_string() -> None:
+        """Test that Colour.log with invalid string level raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid log level 'invalid'"):
+            Colour.log("invalid", "test message")
+
+    @staticmethod
+    def test_log_method_valid_level_strings() -> None:
+        """Test that Colour.log accepts valid level strings."""
+        # These should not raise
+        for level_str in ["notset", "debug", "info", "warning", "error", "critical"]:
+            Colour.log(level_str, "test message")
+
+    @staticmethod
+    def test_colour_member_log_invalid_level_string() -> None:
+        """Test that Colour.<colour>.log with invalid string level raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid log level 'invalid'"):
+            Colour.blue.log("invalid", "test message")
+
+    @staticmethod
+    def test_set_log_level_with_int() -> None:
+        """Test that integer log levels work correctly."""
+        # These should not raise
+        for level_int in range(100):
+            Colour.set_log_level(level_int)
+
+
+class TestExtraParameterHandling:
+    """Test that extra parameters passed to logging methods are preserved."""
+
+    @staticmethod
+    def test_info_preserves_extra_dict(mock_logger: Mock) -> None:
+        """Test that Colour.info preserves entire extra dict."""
+        Colour.info("message", extra={"user_id": 123, "request_id": "abc"})
+
+        # Verify the extra dict contains both user fields and the highlighter
+        call_args = mock_logger.info.call_args
+        assert call_args is not None
+        extra = call_args.kwargs.get("extra", {})
+        assert extra.get("user_id") == 123
+        assert extra.get("request_id") == "abc"
+        assert extra.get("highlighter") is None
+
+    @staticmethod
+    def test_coloured_info_preserves_extra_dict(mock_logger: Mock) -> None:
+        """Test that Colour.<colour>.info preserves entire extra dict."""
+        Colour.blue.info("message", extra={"user_id": 456})
+
+        call_args = mock_logger.info.call_args
+        assert call_args is not None
+        extra = call_args.kwargs.get("extra", {})
+        assert extra.get("user_id") == 456
+        assert extra.get("highlighter") is None
+
+    @staticmethod
+    def test_warning_preserves_extra_dict(mock_logger: Mock) -> None:
+        """Test that Colour.warning preserves entire extra dict."""
+        Colour.warning("message", extra={"alert_id": "xyz"})
+
+        call_args = mock_logger.warning.call_args
+        assert call_args is not None
+        extra = call_args.kwargs.get("extra", {})
+        assert extra.get("alert_id") == "xyz"
+        assert extra.get("highlighter") is None
+
+    @staticmethod
+    def test_error_preserves_extra_dict(mock_logger: Mock) -> None:
+        """Test that Colour.error preserves entire extra dict."""
+        Colour.error("message", extra={"error_code": 500})
+
+        call_args = mock_logger.error.call_args
+        assert call_args is not None
+        extra = call_args.kwargs.get("extra", {})
+        assert extra.get("error_code") == 500
+        assert extra.get("highlighter") is None
+
+    @staticmethod
+    def test_critical_preserves_extra_dict(mock_logger: Mock) -> None:
+        """Test that Colour.critical preserves entire extra dict."""
+        Colour.critical("message", extra={"severity": "high"})
+
+        call_args = mock_logger.critical.call_args
+        assert call_args is not None
+        extra = call_args.kwargs.get("extra", {})
+        assert extra.get("severity") == "high"
+        assert extra.get("highlighter") is None
+
+    @staticmethod
+    def test_log_preserves_extra_dict(mock_logger: Mock) -> None:
+        """Test that Colour.log preserves entire extra dict."""
+        Colour.log("info", "message", extra={"trace_id": "123abc"})
+
+        call_args = mock_logger.log.call_args
+        assert call_args is not None
+        extra = call_args.kwargs.get("extra", {})
+        assert extra.get("trace_id") == "123abc"
+        assert extra.get("highlighter") is None
+
+    @staticmethod
+    def test_coloured_log_preserves_extra_dict(mock_logger: Mock) -> None:
+        """Test that Colour.<colour>.log preserves entire extra dict."""
+        Colour.red.log("error", "message", extra={"request_id": "789def"})
+
+        call_args = mock_logger.log.call_args
+        assert call_args is not None
+        extra = call_args.kwargs.get("extra", {})
+        assert extra.get("request_id") == "789def"
+        assert extra.get("highlighter") is None
+
+
+class TestModifyLogFormat:
+    """Test the modify_log_format method."""
+
+    @staticmethod
+    @patch("colours.main.ColourHandler")
+    def test_modify_log_format_all_options(mock_handler_class: Mock) -> None:
+        """Test modify_log_format with all options enabled."""
+        mock_handler = Mock()
+        mock_handler_class.return_value = mock_handler
+
+        Colour.modify_log_format(show_level=True, show_path=True, show_time=True)
+
+        call_kwargs = mock_handler_class.call_args.kwargs
+        assert call_kwargs["show_level"] is True
+        assert call_kwargs["show_path"] is True
+        assert call_kwargs["show_time"] is True
+
+    @staticmethod
+    @patch("colours.main.LOGGER")
+    def test_modify_log_format_removes_old_handlers(mock_logger: Mock) -> None:
+        """Test that modify_log_format removes existing handlers."""
+        old_handler1 = Mock()
+        old_handler2 = Mock()
+        mock_logger.handlers = [old_handler1, old_handler2]
+        mock_logger.level = 20  # INFO level
+
+        Colour.modify_log_format(show_level=True)
+
+        # Verify both handlers were removed
+        assert mock_logger.removeHandler.call_count == 2
+        mock_logger.removeHandler.assert_any_call(old_handler1)
+        mock_logger.removeHandler.assert_any_call(old_handler2)
+        # Verify a new handler was added
+        mock_logger.addHandler.assert_called_once()
