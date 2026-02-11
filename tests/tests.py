@@ -219,18 +219,28 @@ def test_alias():
     assert Color is Colour
 
 
-@patch("colours.main.colour_logger")
-def test_debug_log_static(mock_logger: Mock):
-    """Test Colour.debug logs debug messages using logger."""
-    Colour.debug("debug message")
-    mock_logger.debug.assert_called_once_with("debug message")
+def test_debug_log_static():
+    """Test Colour.debug logs coloured debug messages."""
+    with patch("colours.main.colour_logger") as mock_logger:
+        Colour.debug("basic debug")
+        mock_logger.debug.assert_called_once_with("basic debug")
+
+    with patch("colours.main.colour_logger._log") as mock_logger:
+        Colour.debug("blue debug")
+        # Assert that the _log call is not actually invoked because of the logging level setting.
+        mock_logger._log.assert_not_called()  # noqa: SLF001,
 
 
-@patch("colours.main.colour_logger")
-def test_debug_log_member(mock_logger: Mock):
+def test_debug_log_member():
     """Test Colour.blue.debug logs coloured debug messages."""
-    Colour.blue.debug("blue debug")
-    mock_logger.debug.assert_called_once_with("[deep_sky_blue1]blue debug[/deep_sky_blue1]", extra={"highlighter": None})
+    with patch("colours.main.colour_logger") as mock_logger:
+        Colour.blue.debug("blue debug")
+        mock_logger.debug.assert_called_once_with("[deep_sky_blue1]blue debug[/deep_sky_blue1]", extra={"highlighter": None})
+
+    with patch("colours.main.colour_logger._log") as mock_logger:
+        Colour.blue.debug("blue debug")
+        # Assert that the _log call is not actually invoked because of the logging level setting.
+        mock_logger._log.assert_not_called()  # noqa: SLF001
 
 
 @patch("colours.main.colour_logger")

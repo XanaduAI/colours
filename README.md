@@ -22,11 +22,11 @@ pip install git+https://github.com/XanaduAI/colours.git
 - **Enum-based API**: Clean, type-safe colour definitions.
 - **Multiple colour options**: red, orange, yellow, green, blue, purple.
 - **Bold variants**: Uppercase enum values provide bold styling.
-- **Flexible printing**: Multiple ways to apply colours to text.
+- **Italicized option**: Italics option available for italicized styling.
+- **Flexible colour nesting**: Multiple ways to apply colours to text.
 - **Utility functions**: Error highlighting and ANSI escape sequence removal.
-- **Error printing**: Print error messages in red.
-- **Rich integration**: Leverages Rich's powerful terminal formatting.
-- **Disable printing**: Setting the environment variable `COLOURS_DISABLE_PRINT` to `true` will disable general printing.
+- **Rich print integration**: Leverages Rich's powerful terminal formatting.
+- **Rich logging integration**: Leverages Rich's log formatting to print colourful logs to the console.
 
 ## Usage
 
@@ -126,7 +126,7 @@ clean_text = Colour.remove_ansi(ansi_text)
 assert clean_text == "Hello, Red World!" # True
 
 # Rainbow colours
-clrs = [c for c in Colour if isinstance(c.value, str) and not any(attr in c.value for attr in ["bold", "default", "italic"])]
+clrs = [c for c in Colour if not any(attr in c.value for attr in ["bold", "default", "italic"])]
 message = "Hello! This is a message written in cycling rainbow colours for each word.".split()
 n = len(clrs)
 Colour.print(*(clrs[i % n](word) for i, word in enumerate(message)))
@@ -137,9 +137,12 @@ Colour.print(*(clrs[i % n](word) for i, word in enumerate(message)))
 ```python
 from colours import Colour
 
-# If you need to modify the logging level to increase or decrease verbosity, simply get the `colours` logger.
+# If you need to modify the logging level to increase or decrease verbosity, simply set the level like so:
+Colour.set_log_level("debug")
+
+# You can also get the logger directly and set it directly.
 import logging
-colour_logger = logging.getLogger("colours")
+colour_logger = logging.getLogger("xanadu.colours")
 colour_logger.setLevel(logging.DEBUG)
 
 # Any custom log can be given by using the `Colour.log` method and choosing the logging level.
@@ -161,13 +164,22 @@ Colour.critical("Silence even critical logs.")
 
 ### Colour Enum
 
-#### Methods
+#### Common Methods
 
 - `__call__(value: Any) -> str`: Wraps the value in colour tags.
-- `print(*args, **kwargs)`: Prints coloured text using Rich print.
 - `red_error(string: str) -> str`: Static method to highlight error patterns in red.
 - `remove_ansi(string: str) -> str`: Static method to remove ANSI escape sequences.
-- `error(*args)`: Always prints in red, regardless of `COLOURS_DISABLE_PRINT` status.
+
+#### Print Methods
+- `print(*args, **kwargs)`: Prints coloured text using Rich print.
+
+#### Logging Methods
+- `debug(*args, **kwargs)`: Logs a debug statement to the console, not visible by default.
+- `info(*args, **kwargs)`: Logs an info statement to the console, is visible by default.
+- `warning(*args, **kwargs)`: Always logs warning statements in orange.
+- `error(*args, **kwargs)`: Always logs error statements in red, highlighting with **bold** words containing `error`.
+- `critical(*args, **kwargs)`: Always logs critical statements in BOLD RED.
+- `log(level, *args, **kwargs)`: Flexible logging statements for additional customizations.
 
 ## Alias
 
