@@ -13,9 +13,11 @@
 # limitations under the License.
 """An Enum wrapper around Rich colours."""
 
-from .main import Color, Colour
+from .main import LOGGER, Color, Colour, ColourHandler
 
 __all__ = [
+    "LOGGER",
     "Color",
     "Colour",
+    "ColourHandler",
 ]

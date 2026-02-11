@@ -13,12 +13,48 @@
 # limitations under the License.
 """Simplified colours for Python terminal applications."""
 
+import logging
 import re
+import shutil
 from collections.abc import Callable
+from contextlib import suppress
 from enum import Enum
+from functools import wraps
 from typing import Any, overload
 
 from rich import print as rich_print
+from rich.logging import RichHandler
+
+width, _ = shutil.get_terminal_size()
+
+
+class ColourHandler(RichHandler):
+    """A custom instance of the RichHandler class."""
+
+    def __init__(
+        self,
+        show_level: bool = False,
+        show_path: bool = False,
+        show_time: bool = False,
+        level: int = logging.INFO,
+    ) -> None:
+        super().__init__(
+            markup=True,
+            level=level,
+            show_time=show_time,
+            tracebacks_code_width=int(width * 0.9),
+            show_path=show_path,
+            show_level=show_level,
+        )
+
+
+# This library requires the RichHandler to render markup correctly.
+# We configure the logger at import time to guarantee Colour logging works out-of-the-box.
+# Users can adjust verbosity with Colour.set_log_level() as needed.
+LOGGER = logging.getLogger("xanadu.colours")
+LOGGER.addHandler(ColourHandler())
+LOGGER.setLevel(logging.INFO)
+LOGGER.propagate = False
 
 
 class _PrintDescriptor:
@@ -38,20 +74,116 @@ class _PrintDescriptor:
     def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
         """Return appropriate print function based on access context."""
         if instance is None:
-            # Called on class: Colour.print(...)
             return rich_print
 
-        # Called on instance: Colour.blue.print(...)
-        colour: Colour = instance
+        @wraps(rich_print)
+        def colour_print(*args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            rich_print(*map(instance, args), **kwargs)
 
-        def print_colored(*args: Any, **kwargs: Any) -> None:
-            rich_print(*[colour(arg) for arg in args], **kwargs)
+        return colour_print
 
-        return print_colored
+
+def _parse_log_level(level: str) -> int:
+    """Parse a string log level and raise ValueError if invalid.
+
+    Args:
+        level: A string log level name (e.g., 'DEBUG', 'INFO').
+
+    Returns:
+        The integer log level.
+
+    Raises:
+        ValueError: If the string level name is not a valid logging level.
+
+    """
+    with suppress(AttributeError):
+        return getattr(logging, level.upper())
+    valid_levels = ", ".join(
+        sorted(
+            [name for name in dir(logging) if name.isupper() and isinstance(getattr(logging, name), int)],
+            key=lambda attr: getattr(logging, attr),
+        )
+    )
+    msg = f"Invalid log level '{level}'. Valid levels are: {valid_levels}"
+    raise ValueError(msg)
+
+
+class _PredefinedLogDescriptor:
+    """Descriptor to handle both static and instance log methods for a given log level."""
+
+    def __init__(self, level: str):
+        self.level: str = level
+        self.loglevel: int = _parse_log_level(level)
+
+    @overload
+    def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
+
+    @overload
+    def __get__(self, instance: "Colour", owner: type["Colour"]) -> Callable[..., None]: ...
+
+    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
+        """Return appropriate log function based on access context."""
+        log_method = getattr(LOGGER, self.level)
+        if instance is None:
+
+            @wraps(log_method)
+            def log_func(msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+                if LOGGER.isEnabledFor(self.loglevel):
+                    log_method(msg, *args, **kwargs)
+
+            return log_func
+
+        @wraps(log_method)
+        def log_func(msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            if LOGGER.isEnabledFor(self.loglevel):
+                log_method(instance(msg), *args, **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})})
+
+        return log_func
+
+
+class _VersatileLogDescriptor:
+    """Descriptor for versatile log method that takes level as first argument."""
+
+    @overload
+    def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
+
+    @overload
+    def __get__(self, instance: "Colour", owner: type["Colour"]) -> Callable[..., None]: ...
+
+    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
+        """Return appropriate log function based on access context."""
+        if instance is None:
+
+            @wraps(LOGGER.log)
+            def log(level: int | str, msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+                # Use instance method to get proper error handling
+                loglevel: int = _parse_log_level(level) if isinstance(level, str) else level
+                if LOGGER.isEnabledFor(loglevel):
+                    LOGGER.log(
+                        loglevel,
+                        msg,
+                        *args,
+                        **kwargs,
+                    )
+
+            return log
+
+        @wraps(LOGGER.log)
+        def log(level: int | str, msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            loglevel: int = _parse_log_level(level) if isinstance(level, str) else level
+            if LOGGER.isEnabledFor(loglevel):
+                LOGGER.log(
+                    loglevel,
+                    instance(msg),
+                    *args,
+                    **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})},
+                )
+
+        return log
 
 
 class Colour(Enum):
-    """Wrap and display text using Rich colours."""
+    """Wrap, print, or, log text using Rich colours."""
 
     # Normal colours
     red = "red"
@@ -61,6 +193,7 @@ class Colour(Enum):
     blue = "deep_sky_blue1"
     purple = "magenta"
     default = "default"
+    italic = "italic"
 
     # BOLD colours
     RED = "bold red"
@@ -69,12 +202,18 @@ class Colour(Enum):
     GREEN = "bold green"
     BLUE = "bold deep_sky_blue1"
     PURPLE = "bold magenta"
+    DEFAULT = "bold default"
+    BOLD = "bold default"  # noqa: PIE796, alias
+    ITALIC = "bold italic"
 
     def __call__(self, string: Any) -> str:
         """Return argument as a string wrapped in colour tags."""
         return f"[{self.value}]{string}[/{self.value}]"
 
     print = _PrintDescriptor()
+    info = _PredefinedLogDescriptor("info")
+    debug = _PredefinedLogDescriptor("debug")
+    log = _VersatileLogDescriptor()
 
     @staticmethod
     def red_error(string: str, *, display: bool = False) -> str:
@@ -87,12 +226,117 @@ class Colour(Enum):
         return output
 
     @staticmethod
+    def warning(msg: str, *args: Any, **kwargs: Any) -> None:
+        """Log 'msg % args' with severity 'WARNING'.
+
+        Warning logs are always displayed in orange.
+
+        To pass exception information, use the keyword argument exc_info with
+        a true value, e.g.
+
+        Colour.warning("Houston, we have a %s", "bit of a problem", exc_info=True)
+        """
+        if LOGGER.isEnabledFor(logging.WARNING):
+            LOGGER.warning(
+                Colour.orange(msg),
+                *args,
+                **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})},
+            )
+
+    @staticmethod
+    def error(msg: str, *args: Any, **kwargs: Any) -> None:
+        """Log 'msg % args' with severity 'ERROR'.
+
+        Error logs are always displayed in red.
+        Words that contain "error" (not case sensitive) will be bolded for emphasis.
+
+        To pass exception information, use the keyword argument exc_info with
+        a true value, e.g.
+
+        Colour.error("Houston, we have a %s", "major problem", exc_info=True)
+        """
+        if LOGGER.isEnabledFor(logging.ERROR):
+            LOGGER.error(
+                Colour.red_error(Colour.red(msg)),
+                *args,
+                **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})},
+            )
+
+    @staticmethod
+    def critical(msg: str, *args: Any, **kwargs: Any) -> None:
+        """Log 'msg % args' with severity 'CRITICAL'.
+
+        Critical logs are always displayed in BOLD RED.
+
+        To pass exception information, use the keyword argument exc_info with
+        a true value, e.g.
+
+        Colour.critical("Houston, we have a %s", "major disaster", exc_info=True)
+        """
+        if LOGGER.isEnabledFor(logging.CRITICAL):
+            LOGGER.critical(
+                Colour.RED(msg),
+                *args,
+                **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})},
+            )
+
+    @staticmethod
     def remove_ansi(string: str) -> str:
         """Remove Ansi Escape Sequences."""
         # From https://stackoverflow.com/a/14693789
         #  by https://stackoverflow.com/users/100297/martijn-pieters
         ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         return ansi_escape.sub("", string)
+
+    @staticmethod
+    def set_log_level(level: int | str = logging.INFO) -> None:
+        """Set the logging level of the colours logger.
+
+        Args:
+            level: An integer log level or string name (e.g., 'DEBUG', 'INFO').
+                   Defaults to logging.INFO (20).
+
+        Raises:
+            ValueError: If a string level name is not a valid logging level.
+
+        Note:
+            This affects ALL log calls library-wide and in any client code
+            using the `xanadu.colours` logger. This is a global setting.
+
+        """
+        LOGGER.setLevel(_parse_log_level(level) if isinstance(level, str) else level)
+
+    @staticmethod
+    def modify_log_format(
+        show_level: bool = False,
+        show_path: bool = False,
+        show_time: bool = False,
+    ) -> None:
+        """Modify how the logs are displayed.
+
+        Args:
+            show_level: shows the log level (DEBUG, INFO, etc.).
+            show_path: shows where the log was generated from.
+            show_time: shows the local time when the log was generated.
+
+        Example:
+            Colour.modify_log_format(show_level=True, show_time=True)
+
+        """
+        # Remove all existing handlers
+        for handler in LOGGER.handlers:
+            if isinstance(handler, type(ColourHandler())):
+                LOGGER.removeHandler(handler)
+
+        # Add a new handler with the updated format
+        LOGGER.addHandler(
+            ColourHandler(
+                show_level=show_level,
+                show_path=show_path,
+                show_time=show_time,
+                level=LOGGER.level,
+            )
+        )
 
 
 # American English alias

@@ -18,14 +18,13 @@ from pathlib import Path
 
 import pytest
 
+README_PATH = Path(__file__).parents[1] / "README.md"
 
+
+@pytest.mark.skipif(condition=(not README_PATH.exists()), reason="README.md not found")
 def test_readme_code_blocks():
     """Extract and run Python code blocks from README.md to ensure they are valid."""
-    readme_path = Path(__file__).parents[1] / "README.md"
-    if not readme_path.exists():
-        pytest.skip("README.md not found")
-
-    content = readme_path.read_text(encoding="utf-8")
+    content = README_PATH.read_text(encoding="utf-8")
 
     # Regex to find python code blocks
     code_blocks = re.findall(r"```python\n(.*?)```", content, re.DOTALL)
