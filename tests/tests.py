@@ -233,25 +233,29 @@ class TestLogs:
 
     @staticmethod
     def test_debug_log_static(mock_logger: Mock) -> None:
-        """Test Colour.debug logs coloured debug messages."""
-        Colour.debug("basic debug")
-        mock_logger.debug.assert_called_once_with("basic debug")
+        """Test Colour.debug respects log level filtering."""
+        # At default INFO level (20), debug messages (level 10) should be filtered
+        mock_logger.isEnabledFor.return_value = False
+        Colour.debug("filtered debug")
+        mock_logger.debug.assert_not_called()
 
-        with patch("colours.main.LOGGER._log") as mock__log:
-            Colour.debug("blue debug")
-            # Assert that the _log call is not actually invoked because of the logging level setting.
-            mock__log._log.assert_not_called()  # noqa: SLF001,
+        # When log level allows debug messages
+        mock_logger.isEnabledFor.return_value = True
+        Colour.debug("visible debug")
+        mock_logger.debug.assert_called_once_with("visible debug")
 
     @staticmethod
     def test_debug_log_member(mock_logger: Mock) -> None:
-        """Test Colour.blue.debug logs coloured debug messages."""
-        Colour.blue.debug("blue debug")
-        mock_logger.debug.assert_called_once_with("[deep_sky_blue1]blue debug[/deep_sky_blue1]", extra={"highlighter": None})
+        """Test Colour.blue.debug respects log level filtering."""
+        # At default INFO level (20), debug messages (level 10) should be filtered
+        mock_logger.isEnabledFor.return_value = False
+        Colour.blue.debug("filtered debug")
+        mock_logger.debug.assert_not_called()
 
-        with patch("colours.main.LOGGER._log") as mock__log:
-            Colour.blue.debug("blue debug")
-            # Assert that the _log call is not actually invoked because of the logging level setting.
-            mock__log._log.assert_not_called()  # noqa: SLF001
+        # When log level allows debug messages
+        mock_logger.isEnabledFor.return_value = True
+        Colour.blue.debug("visible debug")
+        mock_logger.debug.assert_called_once_with("[deep_sky_blue1]visible debug[/deep_sky_blue1]", extra={"highlighter": None})
 
     @staticmethod
     def test_info_log_static(mock_logger: Mock) -> None:
@@ -300,26 +304,41 @@ class TestLogs:
         mock_logger.critical.assert_called_once_with(expected, extra={"highlighter": None})
 
     @staticmethod
-    def test_changing_log_level() -> None:
+    def test_changing_log_level(mock_logger: Mock) -> None:
         """Test that setting the log level above critical causes no logs to display."""
+        # When log level is very high (100), isEnabledFor returns False, so no logging occurs
+        mock_logger.isEnabledFor.return_value = False
         Colour.set_log_level(100)
-        with patch("colours.main.LOGGER._log") as mock_logger:
-            Colour.debug("a message")
-            Colour.red.debug("a message")
-            Colour.log("info", "a message")
-            Colour.red.log("info", "a message")
-            Colour.warning("a message")
-            Colour.error("a message")
-            Colour.critical("a message")
-            mock_logger.assert_not_called()
+        Colour.debug("a message")
+        Colour.red.debug("a message")
+        Colour.log("info", "a message")
+        Colour.red.log("info", "a message")
+        Colour.warning("a message")
+        Colour.error("a message")
+        Colour.critical("a message")
 
+        # Verify no logging methods were called
+        mock_logger.debug.assert_not_called()
+        mock_logger.log.assert_not_called()
+        mock_logger.warning.assert_not_called()
+        mock_logger.error.assert_not_called()
+        mock_logger.critical.assert_not_called()
+
+        # Reset and test with low log level
+        mock_logger.reset_mock()
+        mock_logger.isEnabledFor.return_value = True
         Colour.set_log_level(1)
-        with patch("colours.main.LOGGER._log") as mock_logger:
-            Colour.debug("a message")
-            Colour.red.debug("a message")
-            Colour.log("info", "a message")
-            Colour.red.log("info", "a message")
-            Colour.warning("a message")
-            Colour.error("a message")
-            Colour.critical("a message")
-            assert mock_logger.call_count == 7
+        Colour.debug("a message")
+        Colour.red.debug("a message")
+        Colour.log("info", "a message")
+        Colour.red.log("info", "a message")
+        Colour.warning("a message")
+        Colour.error("a message")
+        Colour.critical("a message")
+
+        # Verify all logging methods were called
+        assert mock_logger.debug.call_count == 2
+        assert mock_logger.log.call_count == 2
+        assert mock_logger.warning.call_count == 1
+        assert mock_logger.error.call_count == 1
+        assert mock_logger.critical.call_count == 1

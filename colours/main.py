@@ -23,7 +23,7 @@ from typing import Any, overload
 from rich import print as rich_print
 from rich.logging import RichHandler
 
-width, _ = shutil.get_terminal_size(fallback=(80, 32))
+width, _ = shutil.get_terminal_size()
 
 
 class ColourHandler(RichHandler):
@@ -106,7 +106,7 @@ Colour{"." + instance.value if instance is not None else ""}.{self.level}("Houst
 
         def log_func(msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
             if LOGGER.isEnabledFor(self.loglevel):
-                log_method(instance(msg), *args, **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs))
+                log_method(instance(msg), *args, **{**kwargs, "extra": kwargs.get("extra", {"highlighter": None})})
 
         log_func.__name__ = self.level
         log_func.__doc__ = doc_string
@@ -149,7 +149,7 @@ Colour{"." + instance.value if instance is not None else ""}.log(level, "We have
                     loglevel,
                     instance(msg),
                     *args,
-                    **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs),
+                    **{**kwargs, "extra": kwargs.get("extra", {"highlighter": None})},
                 )
 
         log.__doc__ = doc_string
@@ -214,7 +214,7 @@ class Colour(Enum):
             LOGGER.warning(
                 Colour.orange(msg),
                 *args,
-                **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs),
+                **{**kwargs, "extra": kwargs.get("extra", {"highlighter": None})},
             )
 
     @staticmethod
@@ -233,7 +233,7 @@ class Colour(Enum):
             LOGGER.error(
                 Colour.red_error(Colour.red(msg)),
                 *args,
-                **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs),
+                **{**kwargs, "extra": kwargs.get("extra", {"highlighter": None})},
             )
 
     @staticmethod
@@ -251,7 +251,7 @@ class Colour(Enum):
             LOGGER.critical(
                 Colour.RED(msg),
                 *args,
-                **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs),
+                **{**kwargs, "extra": kwargs.get("extra", {"highlighter": None})},
             )
 
     @staticmethod

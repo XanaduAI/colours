@@ -27,6 +27,9 @@ pip install git+https://github.com/XanaduAI/colours.git
 - **Utility functions**: Error highlighting and ANSI escape sequence removal.
 - **Rich print integration**: Leverages Rich's powerful terminal formatting.
 - **Rich logging integration**: Leverages Rich's log formatting to print colourful logs to the console.
+- **Logger access**: Direct access to the colours logger via `from colours import LOGGER`.
+    - Pre-configured with `RichHandler` and `INFO` level.
+    - Can be customized for advanced usage.
 
 ## Usage
 
@@ -141,9 +144,14 @@ from colours import Colour
 Colour.set_log_level("debug")
 
 # You can also get the logger directly and set it directly.
+# Option 1: Get it yourself
 import logging
 colour_logger = logging.getLogger("xanadu.colours")
 colour_logger.setLevel(logging.DEBUG)
+
+# Option 2: Use exported logger
+from colours import LOGGER
+LOGGER.setLevel(logging.DEBUG)
 
 # Any custom log can be given by using the `Colour.log` method and choosing the logging level.
 value = 123
