@@ -30,21 +30,6 @@ pip install git+https://github.com/XanaduAI/colours.git
 
 ## Usage
 
-### Basic Usage
-
-```python
-from colours import Colour
-
-# Use as a callable to wrap text in colour tags
-Colour.print(Colour.red("This is red text"), Colour.GREEN("This is bold green text"))
-
-# Use the print method, mix coloured arguments
-Colour.blue.print("This is blue text", Colour.YELLOW("with bold yellow text"))
-
-# Note: if the base print is a BOLD colour, the mixed colours will also be BOLD, even if it isn't specified.
-Colour.PURPLE.print("This is bold purple text", Colour.orange("with bold orange text"))
-```
-
 ### Available Colours
 
 **Normal colours:**
@@ -55,6 +40,7 @@ Colour.PURPLE.print("This is bold purple text", Colour.orange("with bold orange 
 - `Colour.blue`
 - `Colour.purple`
 - `Colour.default`
+- `Colour.italic`
 
 **Bold colours (uppercase):**
 - `Colour.RED`
@@ -63,14 +49,69 @@ Colour.PURPLE.print("This is bold purple text", Colour.orange("with bold orange 
 - `Colour.GREEN`
 - `Colour.BLUE`
 - `Colour.PURPLE`
+- `Colour.DEFAULT`
+- `Colour.BOLD`
+- `Colour.ITALIC`
 
-### Advanced Usage
+### Basic Printing
+
+Text can be printed straight to the console using the `.print` method which can be called on either
+the `Colour` class itself, or on a colour member of it.
+There are also **BOLD**, _italic_, and ***bold italic*** options.
+```python
+from colours import Colour
+
+# Use as a callable to wrap text in colour tags.
+Colour.print(Colour.red("This is red text"), Colour.GREEN("This is bold green text"))
+
+# Use the print method, mix coloured arguments.
+Colour.blue.print("This is blue text", Colour.YELLOW("with bold yellow text"))
+
+# Note: if the base print is a BOLD colour, the mixed colours will also be BOLD, even if it isn't specified.
+Colour.PURPLE.print("This is bold purple text", Colour.orange("with bold orange text"))
+
+# Basic BOLD, italic, and bold-italic options.
+Colour.print(Colour.BOLD("This is bold text,"), Colour.italic("this is italicized,"), Colour.ITALIC("and this is BOLD and italicized."))
+```
+
+### Basic Logging
+
+Messages can also be logged using the configured `colours` logger. Logged messages can be coloured
+using the callable wrap or coloured automatically in orange, red, and bold-red when using
+`Colour.warning`, `Colour.error`, and `Colour.critical` respectively. Additional customizations
+can be made using the `Colour.log` method by providing the appropriate logging level.
+The default logging level for the `colours` logger is set as `INFO` or `20`.
+
+As usual, it is best practice to use the built-in string interpolation provided by the logging
+module rather than f-strings. This approach defers string formatting until it is necessary,
+improving performance. If you were to use f-strings or concatenation, the string would be
+constructed even if the log level is set higher than the message level, leading to unnecessary overhead.
+```python
+from colours import Colour
+
+# Basic debug logging, will not display be default.
+Colour.debug("This is a standard debug log with a %s.", Colour.blue("hint of blue"))
+
+# Basic info logging.
+Colour.purple.info("This is a purple info log, also with a %s.", Colour.blue("hint of blue"))
+
+# Basic warning logging.
+Colour.warning("This is an orange warning log, customized with a %s.", Colour.blue("hint of blue"))
+
+# Basic error logging. Words that contain "error" will be bolded for emphasis.
+Colour.error("Error: This is a red error log, customized with a %s.", Colour.blue("hint of blue with the nested error being bold red"))
+
+# Basic critical logging.
+Colour.critical("This is bold red critical log, customized with a %s.", Colour.blue("hint of bold blue"))
+```
+
+### Advanced Printing
 
 ```python
 from colours import Colour, Color  # Both spellings supported
 
 # Reset text to the default terminal colour value.
-Colour.RED.print("BoldRedError:", Colour.default("written in the default colour, probably white or black."))
+Colour.RED.print("BoldRedError:", Colour.default("written in the \"default\" colour, probably white or black."))
 
 # Highlight errors in text automatically for displaying.
 error_msg = "ValueError: invalid input"
@@ -85,13 +126,35 @@ clean_text = Colour.remove_ansi(ansi_text)
 assert clean_text == "Hello, Red World!" # True
 
 # Rainbow colours
-clrs = [c for c in Colour if isinstance(c.value, str) and "bold" not in c.value and c.value != "default"]
+clrs = [c for c in Colour if isinstance(c.value, str) and not any(attr in c.value for attr in ["bold", "default", "italic"])]
 message = "Hello! This is a message written in cycling rainbow colours for each word.".split()
 n = len(clrs)
 Colour.print(*(clrs[i % n](word) for i, word in enumerate(message)))
+```
 
-# Printed error messages
-Colour.error("Error: this is an error message.")
+### Advanced Logging
+
+```python
+from colours import Colour
+
+# If you need to modify the logging level to increase or decrease verbosity, simply get the `colours` logger.
+import logging
+colour_logger = logging.getLogger("colours")
+colour_logger.setLevel(logging.DEBUG)
+
+# Any custom log can be given by using the `Colour.log` method and choosing the logging level.
+value = 123
+Colour.log("debug", "This is a basic debug log with a custom value: %s.", value)
+Colour.blue.log(logging.DEBUG, "This is a blue debug log (logging.DEBUG == 10).")
+
+custom_level = 11
+Colour.blue.log(custom_level, "This is a blue custom_level log.")
+
+Colour.green.log("critical", Colour.ITALIC("This is a bold italicized green critical log."))
+
+# Logs can also be silenced by setting a higher logging level.
+colour_logger.setLevel(100)
+Colour.critical("Silence even critical logs.")
 ```
 
 ## API Reference

@@ -13,23 +13,11 @@
 # limitations under the License.
 """Colour Tests."""
 
-import os
 from unittest.mock import Mock, patch
 
 import pytest
 
 from colours import Color, Colour
-
-
-@pytest.fixture(autouse=True)
-def reset_disable_print_mode():
-    """Reset COLOURS_DISABLE_PRINT mode to default before each test."""
-    prev_value = os.environ.pop("COLOURS_DISABLE_PRINT", None)
-    yield
-    os.environ.pop("COLOURS_DISABLE_PRINT", None)
-    if prev_value:
-        os.environ["COLOURS_DISABLE_PRINT"] = prev_value
-
 
 # Test cases for ANSI escape sequence removal
 ansi_test_cases: dict[str, dict[str, str]] = {
@@ -260,6 +248,20 @@ def test_info_log_member(mock_logger: Mock):
 
 
 @patch("colours.main.colour_logger")
+def test_log_static(mock_logger: Mock):
+    """Test Colour.log to create messages using logger."""
+    Colour.log("notset", "notset message")
+    mock_logger.log.assert_called_once_with(0, "notset message")
+
+
+@patch("colours.main.colour_logger")
+def test_log_member(mock_logger: Mock):
+    """Test Colour.blue.log to create messages using logger."""
+    Colour.blue.log("critical", "blue critical")
+    mock_logger.log.assert_called_once_with(50, "[deep_sky_blue1]blue critical[/deep_sky_blue1]", extra={"highlighter": None})
+
+
+@patch("colours.main.colour_logger")
 def test_warning_log(mock_logger: Mock):
     """Test Colour.warning logs warning messages in orange."""
     Colour.warning("warn message")
@@ -269,6 +271,14 @@ def test_warning_log(mock_logger: Mock):
 @patch("colours.main.colour_logger")
 def test_error_log(mock_logger: Mock):
     """Test Colour.error logs error messages in red with error highlighting."""
-    Colour.error("critical error")
-    expected = "[red]critical [bold red]error[/bold red][/red]"
+    Colour.error("bad error")
+    expected = "[red]bad [bold red]error[/bold red][/red]"
     mock_logger.error.assert_called_once_with(expected, extra={"highlighter": None})
+
+
+@patch("colours.main.colour_logger")
+def test_critical_log(mock_logger: Mock):
+    """Test Colour.critical logs critical messages in red with critical highlighting."""
+    Colour.critical("critical error")
+    expected = "[bold red]critical error[/bold red]"
+    mock_logger.critical.assert_called_once_with(expected, extra={"highlighter": None})

@@ -24,27 +24,33 @@ from typing import Any, overload
 from rich import print as rich_print
 from rich.logging import RichHandler
 
-width, height = shutil.get_terminal_size(fallback=(128, 32))
+width, _ = shutil.get_terminal_size(fallback=(128, 32))
 
 
 class ColourHandler(RichHandler):
     """A custom instance of the RichHandler class."""
 
     def __init__(self) -> None:
-        super().__init__(show_time=False, tracebacks_code_width=width, markup=True, show_path=False, show_level=False)
+        super().__init__(
+            show_time=False,
+            tracebacks_code_width=int(width * 0.9),
+            markup=True,
+            show_path=False,
+            show_level=False,
+        )
 
 
 config: dict[str, Any] = {
     "loggers": {
         "colours": {
             "level": logging.INFO,
-            "handlers": ["rich"],
-            "propagate": "no",
+            "handlers": ["colours"],
+            "propagate": False,
         }
     },
     "handlers": {
-        "rich": {
-            "class": ColourHandler,
+        "colours": {
+            "()": ColourHandler,
         }
     },
     "version": 1,
@@ -75,7 +81,7 @@ class _PrintDescriptor:
         return lambda *args, **kwargs: rich_print(*map(instance, args), **kwargs)
 
 
-class _LogDescriptor:
+class _PredefinedLogDescriptor:
     """Descriptor to handle both static and instance log methods for a given log level."""
 
     def __init__(self, level: str):
@@ -92,7 +98,34 @@ class _LogDescriptor:
         log_method = getattr(colour_logger, self.level)
         if instance is None:
             return lambda *args, **kwargs: log_method(*args, **kwargs)  # noqa: PLW0108
-        return lambda *args, **kwargs: log_method(*map(instance, args), **kwargs, extra={"highlighter": None})
+        return lambda *args, **kwargs: log_method(
+            *map(instance, args),
+            **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs),
+        )
+
+
+class _VersatileLogDescriptor:
+    """Descriptor for versatile log method that takes level as first argument."""
+
+    @overload
+    def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
+
+    @overload
+    def __get__(self, instance: "Colour", owner: type["Colour"]) -> Callable[..., None]: ...
+
+    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
+        """Return appropriate log function based on access context."""
+        if instance is None:
+            return lambda level, *args, **kwargs: colour_logger.log(
+                getattr(logging, level.upper()) if isinstance(level, str) else level,
+                *args,
+                **kwargs,
+            )
+        return lambda level, *args, **kwargs: colour_logger.log(
+            getattr(logging, level.upper()) if isinstance(level, str) else level,
+            *map(instance, args),
+            **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs),
+        )
 
 
 class Colour(Enum):
@@ -106,6 +139,7 @@ class Colour(Enum):
     blue = "deep_sky_blue1"
     purple = "magenta"
     default = "default"
+    italic = "italic"
 
     # BOLD colours
     RED = "bold red"
@@ -114,14 +148,18 @@ class Colour(Enum):
     GREEN = "bold green"
     BLUE = "bold deep_sky_blue1"
     PURPLE = "bold magenta"
+    DEFAULT = "bold default"
+    BOLD = "bold default"  # noqa: PIE796, alias
+    ITALIC = "bold italic"
 
     def __call__(self, string: Any) -> str:
         """Return argument as a string wrapped in colour tags."""
         return f"[{self.value}]{string}[/{self.value}]"
 
     print = _PrintDescriptor()
-    info = _LogDescriptor("info")
-    debug = _LogDescriptor("debug")
+    info = _PredefinedLogDescriptor("info")
+    debug = _PredefinedLogDescriptor("debug")
+    log = _VersatileLogDescriptor()
 
     @staticmethod
     def red_error(string: str, *, display: bool = False) -> str:
@@ -135,13 +173,21 @@ class Colour(Enum):
 
     @staticmethod
     def warning(*args: Any, **kwargs: Any) -> None:
-        """Warning logs are always printed in orange."""
-        colour_logger.warning(*map(Colour.orange, args), **kwargs, extra={"highlighter": None})
+        """Warning logs are always displayed in orange."""
+        kwargs: dict = {"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs
+        colour_logger.warning(*map(Colour.orange, args), **kwargs)
 
     @staticmethod
     def error(*args: Any, **kwargs: Any) -> None:
-        """Error logs are always printed in red."""
-        colour_logger.error(*map(Colour.red, args), **kwargs, extra={"highlighter": None})
+        """Error logs are always displayed in red."""
+        kwargs: dict = {"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs
+        colour_logger.error(*map(Colour.red_error, map(Colour.red, args)), **kwargs)
+
+    @staticmethod
+    def critical(*args: Any, **kwargs: Any) -> None:
+        """Critical logs are always displayed in BOLD RED."""
+        kwargs: dict = {"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs
+        colour_logger.critical(*map(Colour.RED, args), **kwargs)
 
     @staticmethod
     def remove_ansi(string: str) -> str:
