@@ -65,8 +65,14 @@ class _PrintDescriptor:
     def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
         """Return appropriate print function based on access context."""
         if instance is None:
-            return lambda *args, **kwargs: rich_print(*args, **kwargs)  # noqa: PLW0108
-        return lambda *args, **kwargs: rich_print(*map(instance, args), **kwargs)
+            return rich_print
+
+        def colour_print(*args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            rich_print(*map(instance, args), **kwargs)
+
+        colour_print.__name__ = rich_print.__name__
+        colour_print.__doc__ = rich_print.__doc__
+        return colour_print
 
 
 class _PredefinedLogDescriptor:
@@ -74,7 +80,7 @@ class _PredefinedLogDescriptor:
 
     def __init__(self, level: str):
         self.level: str = str(level)
-        self.level_int: int = getattr(logging, self.level.upper())
+        self.loglevel: int = getattr(logging, self.level.upper())
 
     @overload
     def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
@@ -91,16 +97,16 @@ Colour{"." + instance.value if instance is not None else ""}.{self.level}("Houst
         if instance is None:
 
             def log_func(msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-                log_method(msg, *args, **kwargs)
+                if colour_logger.isEnabledFor(self.loglevel):
+                    log_method(msg, *args, **kwargs)
 
             log_func.__name__ = self.level
             log_func.__doc__ = doc_string
             return log_func
 
         def log_func(msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-            msg = instance(msg) if colour_logger.isEnabledFor(self.level_int) else msg
-            kwargs: dict = {"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs
-            log_method(msg, *args, **kwargs)
+            if colour_logger.isEnabledFor(self.loglevel):
+                log_method(instance(msg), *args, **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs))
 
         log_func.__name__ = self.level
         log_func.__doc__ = doc_string
@@ -124,30 +130,34 @@ Colour{"." + instance.value if instance is not None else ""}.log(level, "We have
         if instance is None:
 
             def log(level: int | str, msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-                colour_logger.log(
-                    getattr(logging, level.upper()) if isinstance(level, str) else level,
-                    msg,
-                    *args,
-                    **kwargs,
-                )
+                loglevel: int = getattr(logging, level.upper()) if isinstance(level, str) else level
+                if colour_logger.isEnabledFor(loglevel):
+                    colour_logger.log(
+                        loglevel,
+                        msg,
+                        *args,
+                        **kwargs,
+                    )
 
             log.__doc__ = doc_string
             return log
 
         def log(level: int | str, msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-            colour_logger.log(
-                loglevel := getattr(logging, level.upper()) if isinstance(level, str) else level,
-                instance(msg) if colour_logger.isEnabledFor(loglevel) else msg,
-                *args,
-                **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs),
-            )
+            loglevel: int = getattr(logging, level.upper()) if isinstance(level, str) else level
+            if colour_logger.isEnabledFor(loglevel):
+                colour_logger.log(
+                    loglevel,
+                    instance(msg),
+                    *args,
+                    **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs),
+                )
 
         log.__doc__ = doc_string
         return log
 
 
 class Colour(Enum):
-    """Wrap and display text using Rich colours."""
+    """Wrap, print, or, log text using Rich colours."""
 
     # Normal colours
     red = "red"
@@ -200,12 +210,12 @@ class Colour(Enum):
 
         Colour.warning("Houston, we have a %s", "bit of a problem", exc_info=True)
         """
-        kwargs: dict = {"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs
-        colour_logger.warning(
-            Colour.orange(msg) if colour_logger.isEnabledFor(logging.WARNING) else msg,
-            *args,
-            **kwargs,
-        )
+        if colour_logger.isEnabledFor(logging.WARNING):
+            colour_logger.warning(
+                Colour.orange(msg),
+                *args,
+                **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs),
+            )
 
     @staticmethod
     def error(msg: str, *args: Any, **kwargs: Any) -> None:
@@ -219,12 +229,12 @@ class Colour(Enum):
 
         Colour.error("Houston, we have a %s", "major problem", exc_info=True)
         """
-        kwargs: dict = {"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs
-        colour_logger.error(
-            Colour.red_error(Colour.red(msg)) if colour_logger.isEnabledFor(logging.ERROR) else msg,
-            *(map(Colour.red_error, args) if colour_logger.isEnabledFor(logging.ERROR) else args),
-            **kwargs,
-        )
+        if colour_logger.isEnabledFor(logging.ERROR):
+            colour_logger.error(
+                Colour.red_error(Colour.red(msg)),
+                *args,
+                **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs),
+            )
 
     @staticmethod
     def critical(msg: str, *args: Any, **kwargs: Any) -> None:
@@ -237,12 +247,12 @@ class Colour(Enum):
 
         Colour.critical("Houston, we have a %s", "major disaster", exc_info=True)
         """
-        kwargs: dict = {"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs
-        colour_logger.critical(
-            Colour.RED(msg) if colour_logger.isEnabledFor(logging.CRITICAL) else msg,
-            *args,
-            **kwargs,
-        )
+        if colour_logger.isEnabledFor(logging.CRITICAL):
+            colour_logger.critical(
+                Colour.RED(msg),
+                *args,
+                **({"extra": {"highlighter": None} | kwargs.pop("extra", {})} | kwargs),
+            )
 
     @staticmethod
     def remove_ansi(string: str) -> str:
@@ -253,7 +263,7 @@ class Colour(Enum):
         return ansi_escape.sub("", string)
 
     @staticmethod
-    def set_log_level(level: int | str) -> None:
+    def set_log_level(level: int | str = logging.INFO) -> None:
         """Set the logging level of the colours logger."""
         level: int = getattr(logging, level.upper()) if isinstance(level, str) else level
         logging.getLogger("xanadu.colours").setLevel(level)

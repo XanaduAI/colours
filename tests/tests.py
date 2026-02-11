@@ -19,6 +19,23 @@ import pytest
 
 from colours import Color, Colour
 
+
+@pytest.fixture
+def mock_print():
+    """Mock Rich's print function for testing."""
+    with patch("colours.main.rich_print") as rp:
+        rp.__name__ = "print"
+        rp.__doc__ = "This is a doc string."
+        yield rp
+
+
+@pytest.fixture
+def mock_logger():
+    """Mock the logger for testing."""
+    with patch("colours.main.colour_logger") as lg:
+        yield lg
+
+
 # Test cases for ANSI escape sequence removal
 ansi_test_cases: dict[str, dict[str, str]] = {
     # --- SGR (Select Graphic Rendition) ---
@@ -91,204 +108,222 @@ test_data = ((data["input"], data["expected"]) for data in ansi_test_cases.value
 test_ids = list(ansi_test_cases.keys())
 
 
-@pytest.mark.parametrize(("test_input", "expected_output"), test_data, ids=test_ids)
-def test_remove_ansi(test_input: str, expected_output: str):
-    """Test ansi removal from strings."""
-    assert Colour.remove_ansi(test_input) == expected_output
+class TestUtils:
+    """Test the Colour utility methods."""
+
+    @pytest.mark.parametrize(("test_input", "expected_output"), test_data, ids=test_ids)
+    @staticmethod
+    def test_remove_ansi(test_input: str, expected_output: str) -> None:
+        """Test ansi removal from strings."""
+        assert Colour.remove_ansi(test_input) == expected_output
+
+    @staticmethod
+    def test_call() -> None:
+        """Test that calling an Enum member wraps the string in colour tags."""
+        assert Colour.red("hello") == "[red]hello[/red]"
+        assert Colour.BLUE("world") == "[bold deep_sky_blue1]world[/bold deep_sky_blue1]"
+
+    @staticmethod
+    def test_red_error() -> None:
+        """Test highlighting errors in red."""
+        text = "This is a ValueError."
+        expected = "This is a [bold red]ValueError[/bold red]."
+        assert Colour.red_error(text) == expected
+
+        text_lower = "syntax error here"
+        expected_lower = "syntax [bold red]error[/bold red] here"
+        assert Colour.red_error(text_lower) == expected_lower
+
+    @staticmethod
+    def test_red_error_from_instance() -> None:
+        """Test highlighting errors in red.
+
+        This usecase doesn't make sense, but it is valid.
+        """
+        text = "This is a ValueError."
+        expected = "This is a [bold red]ValueError[/bold red]."
+        assert Colour.blue.red_error(text) == expected
+
+        text_lower = "syntax error here"
+        expected_lower = "syntax [bold red]error[/bold red] here"
+        assert Colour.blue.red_error(text_lower) == expected_lower
+
+    @staticmethod
+    def test_red_error_display(mock_print: Mock) -> None:
+        """Test red_error with display=True."""
+        text = "Fatal Error"
+        Colour.red_error(text, display=True)
+        mock_print.assert_called_once_with("Fatal [bold red]Error[/bold red]")
+
+    @staticmethod
+    def test_alias() -> None:
+        """Test that Color is an alias for Colour."""
+        assert Color is Colour
 
 
-def test_enum_values():
-    """Test that Enum members have the correct values."""
-    assert Colour.red.value == "red"
-    assert Colour.RED.value == "bold red"
-    assert Colour.default.value == "default"
+class TestPrint:
+    """Test the Colour.print and Colour.<colour>.print methods."""
+
+    @staticmethod
+    def test_print_member(mock_print: Mock) -> None:
+        """Test printing using an Enum member."""
+        Colour.green.print("success")
+        mock_print.assert_called_once_with("[green]success[/green]")
+
+    @staticmethod
+    def test_print_static(mock_print: Mock) -> None:
+        """Test printing using the class directly (acting as static print)."""
+        Colour.print("plain text")
+        mock_print.assert_called_once_with("plain text")
+
+    @staticmethod
+    def test_print_multiple_strings(mock_print: Mock) -> None:
+        """Test printing with multiple string arguments."""
+        Colour.blue.print("hello", "world", "test")
+        mock_print.assert_called_once_with(
+            "[deep_sky_blue1]hello[/deep_sky_blue1]",
+            "[deep_sky_blue1]world[/deep_sky_blue1]",
+            "[deep_sky_blue1]test[/deep_sky_blue1]",
+        )
+
+    @staticmethod
+    def test_print_mixed_types(mock_print: Mock) -> None:
+        """Test printing with mixed string and non-string arguments."""
+        Colour.red.print("count:", 42, "status:", True, 1.234)
+        mock_print.assert_called_once_with(
+            "[red]count:[/red]",
+            "[red]42[/red]",
+            "[red]status:[/red]",
+            "[red]True[/red]",
+            "[red]1.234[/red]",
+        )
+
+    @staticmethod
+    def test_print_with_kwargs(mock_print: Mock) -> None:
+        """Test printing with keyword arguments."""
+        Colour.yellow.print("line1", "line2", sep=" | ", end="!\n")
+        mock_print.assert_called_once_with(
+            "[yellow]line1[/yellow]",
+            "[yellow]line2[/yellow]",
+            sep=" | ",
+            end="!\n",
+        )
+
+    @staticmethod
+    def test_print_non_string_only(mock_print: Mock) -> None:
+        """Test printing with only non-string arguments."""
+        Colour.purple.print(123, 456, 789)
+        mock_print.assert_called_once_with("[magenta]123[/magenta]", "[magenta]456[/magenta]", "[magenta]789[/magenta]")
+
+    @staticmethod
+    def test_print_empty_string(mock_print: Mock) -> None:
+        """Test printing with empty string."""
+        Colour.green.print("")
+        mock_print.assert_called_once_with("[green][/green]")
+
+    @staticmethod
+    def test_print_static_multiple_args(mock_print: Mock) -> None:
+        """Test static print with multiple arguments and kwargs."""
+        Colour.print("arg1", 42, "arg2", sep=", ", end="")
+        mock_print.assert_called_once_with("arg1", 42, "arg2", sep=", ", end="")
 
 
-def test_call():
-    """Test that calling an Enum member wraps the string in colour tags."""
-    assert Colour.red("hello") == "[red]hello[/red]"
-    assert Colour.BLUE("world") == "[bold deep_sky_blue1]world[/bold deep_sky_blue1]"
+class TestLogs:
+    """Test the Colour logging methods."""
 
+    @staticmethod
+    def test_debug_log_static() -> None:
+        """Test Colour.debug logs coloured debug messages."""
+        with patch("colours.main.colour_logger") as mock_logger:
+            Colour.debug("basic debug")
+            mock_logger.debug.assert_called_once_with("basic debug")
 
-@patch("colours.main.rich_print")
-def test_print_member(mock_print: Mock):
-    """Test printing using an Enum member."""
-    Colour.green.print("success")
-    mock_print.assert_called_once_with("[green]success[/green]")
+        with patch("colours.main.colour_logger._log") as mock_logger:
+            Colour.debug("blue debug")
+            # Assert that the _log call is not actually invoked because of the logging level setting.
+            mock_logger._log.assert_not_called()  # noqa: SLF001,
 
+    @staticmethod
+    def test_debug_log_member() -> None:
+        """Test Colour.blue.debug logs coloured debug messages."""
+        with patch("colours.main.colour_logger") as mock_logger:
+            Colour.blue.debug("blue debug")
+            mock_logger.debug.assert_called_once_with(
+                "[deep_sky_blue1]blue debug[/deep_sky_blue1]", extra={"highlighter": None}
+            )
 
-@patch("colours.main.rich_print")
-def test_print_static(mock_print: Mock):
-    """Test printing using the class directly (acting as static print)."""
-    Colour.print("plain text")
-    mock_print.assert_called_once_with("plain text")
+        with patch("colours.main.colour_logger._log") as mock_logger:
+            Colour.blue.debug("blue debug")
+            # Assert that the _log call is not actually invoked because of the logging level setting.
+            mock_logger._log.assert_not_called()  # noqa: SLF001
 
+    @staticmethod
+    def test_info_log_static(mock_logger: Mock) -> None:
+        """Test Colour.info logs info messages using logger."""
+        Colour.info("info message")
+        mock_logger.info.assert_called_once_with("info message")
 
-@patch("colours.main.rich_print")
-def test_print_multiple_strings(mock_print: Mock):
-    """Test printing with multiple string arguments."""
-    Colour.blue.print("hello", "world", "test")
-    mock_print.assert_called_once_with(
-        "[deep_sky_blue1]hello[/deep_sky_blue1]",
-        "[deep_sky_blue1]world[/deep_sky_blue1]",
-        "[deep_sky_blue1]test[/deep_sky_blue1]",
-    )
+    @staticmethod
+    def test_info_log_member(mock_logger: Mock) -> None:
+        """Test Colour.blue.info logs coloured info messages."""
+        Colour.blue.info("blue info")
+        mock_logger.info.assert_called_once_with("[deep_sky_blue1]blue info[/deep_sky_blue1]", extra={"highlighter": None})
 
+    @staticmethod
+    def test_log_static(mock_logger: Mock) -> None:
+        """Test Colour.log to create messages using logger."""
+        Colour.log("notset", "notset message")
+        mock_logger.log.assert_called_once_with(0, "notset message")
 
-@patch("colours.main.rich_print")
-def test_print_mixed_types(mock_print: Mock):
-    """Test printing with mixed string and non-string arguments."""
-    Colour.red.print("count:", 42, "status:", True, 1.234)
-    mock_print.assert_called_once_with(
-        "[red]count:[/red]",
-        "[red]42[/red]",
-        "[red]status:[/red]",
-        "[red]True[/red]",
-        "[red]1.234[/red]",
-    )
+    @staticmethod
+    def test_log_member(mock_logger: Mock) -> None:
+        """Test Colour.blue.log to create messages using logger."""
+        Colour.blue.log("critical", "blue critical")
+        mock_logger.log.assert_called_once_with(
+            50, "[deep_sky_blue1]blue critical[/deep_sky_blue1]", extra={"highlighter": None}
+        )
 
+    @staticmethod
+    def test_warning_log(mock_logger: Mock) -> None:
+        """Test Colour.warning logs warning messages in orange."""
+        Colour.warning("warn message")
+        mock_logger.warning.assert_called_once_with("[orange1]warn message[/orange1]", extra={"highlighter": None})
 
-@patch("colours.main.rich_print")
-def test_print_with_kwargs(mock_print: Mock):
-    """Test printing with keyword arguments."""
-    Colour.yellow.print("line1", "line2", sep=" | ", end="!\n")
-    mock_print.assert_called_once_with(
-        "[yellow]line1[/yellow]",
-        "[yellow]line2[/yellow]",
-        sep=" | ",
-        end="!\n",
-    )
+    @staticmethod
+    def test_error_log(mock_logger: Mock) -> None:
+        """Test Colour.error logs error messages in red with error highlighting."""
+        Colour.error("bad error")
+        expected = "[red]bad [bold red]error[/bold red][/red]"
+        mock_logger.error.assert_called_once_with(expected, extra={"highlighter": None})
 
+    @staticmethod
+    def test_critical_log(mock_logger: Mock) -> None:
+        """Test Colour.critical logs critical messages in red with critical highlighting."""
+        Colour.critical("critical error")
+        expected = "[bold red]critical error[/bold red]"
+        mock_logger.critical.assert_called_once_with(expected, extra={"highlighter": None})
 
-@patch("colours.main.rich_print")
-def test_print_non_string_only(mock_print: Mock):
-    """Test printing with only non-string arguments."""
-    Colour.purple.print(123, 456, 789)
-    mock_print.assert_called_once_with("[magenta]123[/magenta]", "[magenta]456[/magenta]", "[magenta]789[/magenta]")
+    @staticmethod
+    def test_changing_log_level() -> None:
+        """Test that setting the log level above critical causes no logs to display."""
+        Colour.set_log_level(100)
+        with patch("colours.main.colour_logger._log") as mock_logger:
+            Colour.debug("a message")
+            Colour.red.debug("a message")
+            Colour.log("info", "a message")
+            Colour.red.log("info", "a message")
+            Colour.warning("a message")
+            Colour.error("a message")
+            Colour.critical("a message")
+            mock_logger.assert_not_called()
 
-
-@patch("colours.main.rich_print")
-def test_print_empty_string(mock_print: Mock):
-    """Test printing with empty string."""
-    Colour.green.print("")
-    mock_print.assert_called_once_with("[green][/green]")
-
-
-@patch("colours.main.rich_print")
-def test_print_static_multiple_args(mock_print: Mock):
-    """Test static print with multiple arguments and kwargs."""
-    Colour.print("arg1", 42, "arg2", sep=", ", end="")
-    mock_print.assert_called_once_with("arg1", 42, "arg2", sep=", ", end="")
-
-
-def test_red_error():
-    """Test highlighting errors in red."""
-    text = "This is a ValueError."
-    expected = "This is a [bold red]ValueError[/bold red]."
-    assert Colour.red_error(text) == expected
-
-    text_lower = "syntax error here"
-    expected_lower = "syntax [bold red]error[/bold red] here"
-    assert Colour.red_error(text_lower) == expected_lower
-
-
-def test_red_error_from_instance():
-    """Test highlighting errors in red.
-
-    This usecase doesn't make sense, but it is valid.
-    """
-    text = "This is a ValueError."
-    expected = "This is a [bold red]ValueError[/bold red]."
-    assert Colour.blue.red_error(text) == expected
-
-    text_lower = "syntax error here"
-    expected_lower = "syntax [bold red]error[/bold red] here"
-    assert Colour.blue.red_error(text_lower) == expected_lower
-
-
-@patch("colours.main.rich_print")
-def test_red_error_display(mock_print: Mock):
-    """Test red_error with display=True."""
-    text = "Fatal Error"
-    Colour.red_error(text, display=True)
-    mock_print.assert_called_once_with("Fatal [bold red]Error[/bold red]")
-
-
-def test_alias():
-    """Test that Color is an alias for Colour."""
-    assert Color is Colour
-
-
-def test_debug_log_static():
-    """Test Colour.debug logs coloured debug messages."""
-    with patch("colours.main.colour_logger") as mock_logger:
-        Colour.debug("basic debug")
-        mock_logger.debug.assert_called_once_with("basic debug")
-
-    with patch("colours.main.colour_logger._log") as mock_logger:
-        Colour.debug("blue debug")
-        # Assert that the _log call is not actually invoked because of the logging level setting.
-        mock_logger._log.assert_not_called()  # noqa: SLF001,
-
-
-def test_debug_log_member():
-    """Test Colour.blue.debug logs coloured debug messages."""
-    with patch("colours.main.colour_logger") as mock_logger:
-        Colour.blue.debug("blue debug")
-        mock_logger.debug.assert_called_once_with("[deep_sky_blue1]blue debug[/deep_sky_blue1]", extra={"highlighter": None})
-
-    with patch("colours.main.colour_logger._log") as mock_logger:
-        Colour.blue.debug("blue debug")
-        # Assert that the _log call is not actually invoked because of the logging level setting.
-        mock_logger._log.assert_not_called()  # noqa: SLF001
-
-
-@patch("colours.main.colour_logger")
-def test_info_log_static(mock_logger: Mock):
-    """Test Colour.info logs info messages using logger."""
-    Colour.info("info message")
-    mock_logger.info.assert_called_once_with("info message")
-
-
-@patch("colours.main.colour_logger")
-def test_info_log_member(mock_logger: Mock):
-    """Test Colour.blue.info logs coloured info messages."""
-    Colour.blue.info("blue info")
-    mock_logger.info.assert_called_once_with("[deep_sky_blue1]blue info[/deep_sky_blue1]", extra={"highlighter": None})
-
-
-@patch("colours.main.colour_logger")
-def test_log_static(mock_logger: Mock):
-    """Test Colour.log to create messages using logger."""
-    Colour.log("notset", "notset message")
-    mock_logger.log.assert_called_once_with(0, "notset message")
-
-
-@patch("colours.main.colour_logger")
-def test_log_member(mock_logger: Mock):
-    """Test Colour.blue.log to create messages using logger."""
-    Colour.blue.log("critical", "blue critical")
-    mock_logger.log.assert_called_once_with(50, "[deep_sky_blue1]blue critical[/deep_sky_blue1]", extra={"highlighter": None})
-
-
-@patch("colours.main.colour_logger")
-def test_warning_log(mock_logger: Mock):
-    """Test Colour.warning logs warning messages in orange."""
-    Colour.warning("warn message")
-    mock_logger.warning.assert_called_once_with("[orange1]warn message[/orange1]", extra={"highlighter": None})
-
-
-@patch("colours.main.colour_logger")
-def test_error_log(mock_logger: Mock):
-    """Test Colour.error logs error messages in red with error highlighting."""
-    Colour.error("bad error")
-    expected = "[red]bad [bold red]error[/bold red][/red]"
-    mock_logger.error.assert_called_once_with(expected, extra={"highlighter": None})
-
-
-@patch("colours.main.colour_logger")
-def test_critical_log(mock_logger: Mock):
-    """Test Colour.critical logs critical messages in red with critical highlighting."""
-    Colour.critical("critical error")
-    expected = "[bold red]critical error[/bold red]"
-    mock_logger.critical.assert_called_once_with(expected, extra={"highlighter": None})
+        Colour.set_log_level(1)
+        with patch("colours.main.colour_logger._log") as mock_logger:
+            Colour.debug("a message")
+            Colour.red.debug("a message")
+            Colour.log("info", "a message")
+            Colour.red.log("info", "a message")
+            Colour.warning("a message")
+            Colour.error("a message")
+            Colour.critical("a message")
+            assert mock_logger.call_count == 7

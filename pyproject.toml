@@ -110,4 +110,4 @@ max-args = 10
 mypy-init-return = true
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["T201", "INP001", "ANN201", "S101", "PLR6301"]
+"tests/*" = ["T201", "INP001", "ANN201", "S101", "PLR6301", "PLR2004"]
