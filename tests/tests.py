@@ -17,7 +17,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from colours import Color, Colour
+from colours import Color, Colour, ColourHandler
 
 
 @pytest.fixture
@@ -405,6 +405,18 @@ class TestExtraParameterHandling:
         assert extra.get("highlighter") is None
 
     @staticmethod
+    def test_user_overrides_extra_dict(mock_logger: Mock) -> None:
+        """Test that Colour.info preserves entire extra dict."""
+        Colour.info("message", extra={"user_id": 123, "highlighter": "changed"})
+
+        # Verify the extra dict contains both user fields and the highlighter
+        call_args = mock_logger.info.call_args
+        assert call_args is not None
+        extra = call_args.kwargs.get("extra", {})
+        assert extra.get("user_id") == 123
+        assert extra.get("highlighter") == "changed"
+
+    @staticmethod
     def test_coloured_info_preserves_extra_dict(mock_logger: Mock) -> None:
         """Test that Colour.<colour>.info preserves entire extra dict."""
         Colour.blue.info("message", extra={"user_id": 456})
@@ -491,17 +503,16 @@ class TestModifyLogFormat:
     @staticmethod
     @patch("colours.main.LOGGER")
     def test_modify_log_format_removes_old_handlers(mock_logger: Mock) -> None:
-        """Test that modify_log_format removes existing handlers."""
+        """Test that modify_log_format only removes ColourHandlers."""
         old_handler1 = Mock()
         old_handler2 = Mock()
-        mock_logger.handlers = [old_handler1, old_handler2]
+        colour_handler = ColourHandler()
+        mock_logger.handlers = [colour_handler, colour_handler, old_handler1, old_handler2]
         mock_logger.level = 20  # INFO level
 
         Colour.modify_log_format(show_level=True)
 
-        # Verify both handlers were removed
+        # Verify that both the ColourHandlers were removed, then one was re-added.
         assert mock_logger.removeHandler.call_count == 2
-        mock_logger.removeHandler.assert_any_call(old_handler1)
-        mock_logger.removeHandler.assert_any_call(old_handler2)
-        # Verify a new handler was added
+        mock_logger.removeHandler.assert_called_with(colour_handler)
         mock_logger.addHandler.assert_called_once()

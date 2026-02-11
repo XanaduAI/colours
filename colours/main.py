@@ -324,8 +324,10 @@ class Colour(Enum):
 
         """
         # Remove all existing handlers
-        for handler in LOGGER.handlers[:]:
-            LOGGER.removeHandler(handler)
+        for handler in LOGGER.handlers:
+            if isinstance(handler, type(ColourHandler())):
+                LOGGER.removeHandler(handler)
+
         # Add a new handler with the updated format
         LOGGER.addHandler(
             ColourHandler(
