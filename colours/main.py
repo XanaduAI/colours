@@ -14,6 +14,7 @@
 """Simplified colours for Python terminal applications."""
 
 import logging
+import os
 import re
 import shutil
 from collections.abc import Callable
@@ -23,6 +24,7 @@ from functools import wraps
 from typing import Any, overload
 
 from rich import print as rich_print
+from rich.console import Console
 from rich.logging import RichHandler
 
 width, _ = shutil.get_terminal_size()
@@ -36,24 +38,80 @@ class ColourHandler(RichHandler):
         show_level: bool = False,
         show_path: bool = False,
         show_time: bool = False,
-        level: int = logging.INFO,
+        *,
+        level: int = logging.NOTSET,
+        stderr: bool = True,
     ) -> None:
         super().__init__(
+            console=Console(stderr=stderr),
             markup=True,
-            level=level,
             show_time=show_time,
             tracebacks_code_width=int(width * 0.9),
             show_path=show_path,
             show_level=show_level,
         )
+        self.setLevel(level)
+
+
+class MaxLevelFilter(logging.Filter):
+    """Reject log records at or above *max_level*.
+
+    Attached to the stdout handler so that WARNING and above are never
+    duplicated on stdout—they are handled exclusively by the stderr handler.
+    """
+
+    def __init__(self, max_level: int) -> None:
+        super().__init__()
+        self.max_level = max_level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Determine if the specified record is to be logged.
+
+        Returns True if the record should be logged, or False otherwise.
+        If deemed appropriate, the record may be modified in-place.
+        """
+        return record.levelno < self.max_level
+
+
+def _parse_log_level(level: str | int) -> int:
+    """Parse a string log level and raise ValueError if invalid.
+
+    Args:
+        level: A string log level name (e.g., 'DEBUG', 'INFO').
+
+    Returns:
+        The integer log level.
+
+    Raises:
+        ValueError: If the string level name is not a valid logging level.
+
+    """
+    with suppress(ValueError):
+        return int(level)
+    with suppress(AttributeError):
+        return getattr(logging, level.upper())
+    valid_levels = ", ".join(
+        sorted(
+            [name for name in dir(logging) if name.isupper() and isinstance(getattr(logging, name), int)],
+            key=lambda attr: getattr(logging, attr),
+        )
+    )
+    msg = f"Invalid log level '{level}'. Valid levels are: {valid_levels}"
+    raise ValueError(msg)
 
 
 # This library requires the RichHandler to render markup correctly.
 # We configure the logger at import time to guarantee Colour logging works out-of-the-box.
-# Users can adjust verbosity with Colour.set_log_level() as needed.
+# Users can adjust verbosity with Colour.set_log_level() or XANADU_COLOURS_LEVEL as needed.
 LOGGER = logging.getLogger("xanadu.colours")
-LOGGER.addHandler(ColourHandler())
-LOGGER.setLevel(logging.INFO)
+XANADU_COLOURS_LEVEL = _parse_log_level(os.getenv("XANADU_COLOURS_LEVEL", logging.INFO))
+XANADU_COLOURS_SPLIT = _parse_log_level(os.getenv("XANADU_COLOURS_SPLIT", logging.WARNING))
+_stdout_hndlr = ColourHandler(level=XANADU_COLOURS_LEVEL, stderr=False)
+_stdout_hndlr.addFilter(MaxLevelFilter(XANADU_COLOURS_SPLIT))
+_stderr_hndlr = ColourHandler(level=max(XANADU_COLOURS_LEVEL, XANADU_COLOURS_SPLIT), stderr=True)
+LOGGER.addHandler(_stdout_hndlr)
+LOGGER.addHandler(_stderr_hndlr)
+LOGGER.setLevel(XANADU_COLOURS_LEVEL)
 LOGGER.propagate = False
 
 
@@ -81,31 +139,6 @@ class _PrintDescriptor:
             rich_print(*map(instance, args), **kwargs)
 
         return colour_print
-
-
-def _parse_log_level(level: str) -> int:
-    """Parse a string log level and raise ValueError if invalid.
-
-    Args:
-        level: A string log level name (e.g., 'DEBUG', 'INFO').
-
-    Returns:
-        The integer log level.
-
-    Raises:
-        ValueError: If the string level name is not a valid logging level.
-
-    """
-    with suppress(AttributeError):
-        return getattr(logging, level.upper())
-    valid_levels = ", ".join(
-        sorted(
-            [name for name in dir(logging) if name.isupper() and isinstance(getattr(logging, name), int)],
-            key=lambda attr: getattr(logging, attr),
-        )
-    )
-    msg = f"Invalid log level '{level}'. Valid levels are: {valid_levels}"
-    raise ValueError(msg)
 
 
 class _PredefinedLogDescriptor:
@@ -210,6 +243,8 @@ class Colour(Enum):
         """Return argument as a string wrapped in colour tags."""
         return f"[{self.value}]{string}[/{self.value}]"
 
+    logger = LOGGER
+
     print = _PrintDescriptor()
     info = _PredefinedLogDescriptor("info")
     debug = _PredefinedLogDescriptor("debug")
@@ -311,6 +346,8 @@ class Colour(Enum):
         show_level: bool = False,
         show_path: bool = False,
         show_time: bool = False,
+        *,
+        stdout_filter_level: str | int = logging.WARNING,
     ) -> None:
         """Modify how the logs are displayed.
 
@@ -318,25 +355,30 @@ class Colour(Enum):
             show_level: shows the log level (DEBUG, INFO, etc.).
             show_path: shows where the log was generated from.
             show_time: shows the local time when the log was generated.
+            stdout_filter_level: set STDOUT/STDERR set the filter cuttoff.
 
         Example:
             Colour.modify_log_format(show_level=True, show_time=True)
 
         """
         # Remove all existing handlers
-        for handler in LOGGER.handlers:
-            if isinstance(handler, type(ColourHandler())):
-                LOGGER.removeHandler(handler)
+        rm_hndlrs = [handler for handler in LOGGER.handlers if isinstance(handler, ColourHandler)]
+        for handler in rm_hndlrs:
+            LOGGER.removeHandler(handler)
 
         # Add a new handler with the updated format
-        LOGGER.addHandler(
-            ColourHandler(
-                show_level=show_level,
-                show_path=show_path,
-                show_time=show_time,
-                level=LOGGER.level,
-            )
+        filter_split = _parse_log_level(stdout_filter_level)
+        stdout_hndlr = ColourHandler(
+            show_level=show_level,
+            show_path=show_path,
+            show_time=show_time,
+            level=min(LOGGER.level, filter_split),
+            stderr=False,
         )
+        stdout_hndlr.addFilter(MaxLevelFilter(filter_split))
+        stderr_hndlr = ColourHandler(level=filter_split, stderr=True)
+        LOGGER.addHandler(stdout_hndlr)
+        LOGGER.addHandler(stderr_hndlr)
 
 
 # American English alias
