@@ -13,11 +13,14 @@
 # limitations under the License.
 """Colour Tests."""
 
+import logging
+import os
 from unittest.mock import Mock, patch
 
 import pytest
 
 from colours import Color, Colour, ColourHandler
+from colours.main import LOGGER, MaxLevelFilter, _parse_log_level  # noqa: PLC2701
 
 
 @pytest.fixture
@@ -35,6 +38,13 @@ def mock_logger():
     with patch("colours.main.LOGGER") as lg:
         lg.isEnabledFor.return_value = True
         yield lg
+
+
+@pytest.fixture
+def mock_handler_class():
+    """Mock the logger for testing."""
+    with patch("colours.main.ColourHandler") as ch:
+        yield ch
 
 
 # Test cases for ANSI escape sequence removal
@@ -393,23 +403,24 @@ class TestExtraParameterHandling:
 
     @staticmethod
     def test_info_preserves_extra_dict(mock_logger: Mock) -> None:
-        """Test that Colour.info preserves entire extra dict."""
+        """Test that Colour.info (static path) passes extra through unchanged and does not inject highlighter."""
         Colour.info("message", extra={"user_id": 123, "request_id": "abc"})
 
-        # Verify the extra dict contains both user fields and the highlighter
         call_args = mock_logger.info.call_args
         assert call_args is not None
         extra = call_args.kwargs.get("extra", {})
         assert extra.get("user_id") == 123
         assert extra.get("request_id") == "abc"
-        assert extra.get("highlighter") is None
+        # Static path does NOT inject highlighter — the key should be absent entirely.
+        assert "highlighter" not in extra
 
     @staticmethod
     def test_user_overrides_extra_dict(mock_logger: Mock) -> None:
-        """Test that Colour.info preserves entire extra dict."""
-        Colour.info("message", extra={"user_id": 123, "highlighter": "changed"})
+        """Test that a user-supplied highlighter overrides the instance-path default of None."""
+        # Must use the instance path (Colour.blue.info) — that is where the merge
+        # {"highlighter": None} | user_extra happens and user values must win.
+        Colour.blue.info("message", extra={"user_id": 123, "highlighter": "changed"})
 
-        # Verify the extra dict contains both user fields and the highlighter
         call_args = mock_logger.info.call_args
         assert call_args is not None
         extra = call_args.kwargs.get("extra", {})
@@ -462,14 +473,15 @@ class TestExtraParameterHandling:
 
     @staticmethod
     def test_log_preserves_extra_dict(mock_logger: Mock) -> None:
-        """Test that Colour.log preserves entire extra dict."""
+        """Test that Colour.log (static path) passes extra through unchanged and does not inject highlighter."""
         Colour.log("info", "message", extra={"trace_id": "123abc"})
 
         call_args = mock_logger.log.call_args
         assert call_args is not None
         extra = call_args.kwargs.get("extra", {})
         assert extra.get("trace_id") == "123abc"
-        assert extra.get("highlighter") is None
+        # Static path does NOT inject highlighter — the key should be absent entirely.
+        assert "highlighter" not in extra
 
     @staticmethod
     def test_coloured_log_preserves_extra_dict(mock_logger: Mock) -> None:
@@ -487,8 +499,6 @@ class TestModifyLogFormat:
     """Test the modify_log_format method."""
 
     @staticmethod
-    @patch("colours.main.LOGGER")
-    @patch("colours.main.ColourHandler")
     def test_modify_log_format_all_options(mock_handler_class: Mock, mock_logger: Mock) -> None:
         """Test modify_log_format with all options enabled."""
         mock_handler = Mock()
@@ -504,7 +514,6 @@ class TestModifyLogFormat:
         assert call_kwargs["show_time"] is True
 
     @staticmethod
-    @patch("colours.main.LOGGER")
     def test_modify_log_format_removes_old_handlers(mock_logger: Mock) -> None:
         """Test that modify_log_format only removes ColourHandlers."""
         old_handler1 = Mock()
@@ -519,3 +528,499 @@ class TestModifyLogFormat:
         assert mock_logger.removeHandler.call_count == 2
         mock_logger.removeHandler.assert_called_with(colour_handler)
         assert mock_logger.addHandler.call_count == 2
+
+
+class TestParseLogLevel:
+    """Test the _parse_log_level helper."""
+
+    @staticmethod
+    @pytest.mark.parametrize(
+        ("level", "expected"),
+        [
+            ("debug", logging.DEBUG),
+            ("INFO", logging.INFO),
+            ("Warning", logging.WARNING),
+            ("critical", logging.CRITICAL),
+            ("notset", logging.NOTSET),
+            (10, 10),
+            (0, 0),
+            ("10", 10),
+            ("-1", -1),
+        ],
+    )
+    def test_valid_levels(level: str | int, expected: int) -> None:
+        """Test valid string, integer, and numeric-string inputs."""
+        assert _parse_log_level(level) == expected
+
+    @staticmethod
+    @pytest.mark.parametrize("bad", ["INVALID", "foobar", "debu", ""])
+    def test_invalid_string_raises(bad: str) -> None:
+        """Test that unrecognised strings raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid log level"):
+            _parse_log_level(bad)
+
+    @staticmethod
+    def test_deprecated_warn_alias_is_valid() -> None:
+        """Test that 'warn' is accepted because deprecated logging.WARN exists."""
+        assert _parse_log_level("warn") == logging.WARNING
+
+    @staticmethod
+    def test_error_message_lists_standard_level_names() -> None:
+        """Test that the ValueError message contains all standard level names."""
+        with pytest.raises(ValueError, match="Invalid log level") as exc_info:
+            _parse_log_level("garbage")
+        msg = str(exc_info.value)
+        for name in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "NOTSET"]:
+            assert name in msg
+
+
+class TestMaxLevelFilter:
+    """Test MaxLevelFilter boundary conditions."""
+
+    @staticmethod
+    @pytest.mark.parametrize(
+        ("record_level", "max_level", "expected"),
+        [
+            (logging.INFO, logging.WARNING, True),  # below -> pass
+            (logging.WARNING, logging.WARNING, False),  # at -> block
+            (logging.ERROR, logging.WARNING, False),  # above -> block
+            (logging.NOTSET, logging.DEBUG, True),  # NOTSET passes any positive max
+            (logging.NOTSET, 0, False),  # NOTSET blocked when max is 0
+        ],
+    )
+    def test_filter(record_level: int, max_level: int, expected: bool) -> None:
+        """Test pass/block behavior at and around max_level."""
+        f = MaxLevelFilter(max_level)
+        record = logging.LogRecord("test", record_level, "", 0, "msg", (), None)
+        assert f.filter(record) is expected
+
+
+class TestColourHandler:
+    """Test ColourHandler constructor."""
+
+    @staticmethod
+    def test_defaults() -> None:
+        """Test default level is NOTSET, stderr=True, and markup is enabled."""
+        h = ColourHandler()
+        assert h.level == logging.NOTSET
+        assert h.console.stderr is True
+        assert h.markup is True
+
+    @staticmethod
+    def test_custom_level_and_stderr_flag() -> None:
+        """Test that level and stderr flag are forwarded correctly."""
+        h = ColourHandler(level=logging.ERROR, stderr=False)
+        assert h.level == logging.ERROR
+        assert h.console.stderr is False
+
+    @staticmethod
+    def test_show_flags_accepted() -> None:
+        """Test that all show_* flag combinations construct without error."""
+        ColourHandler(show_level=True, show_path=True, show_time=True)
+        ColourHandler(show_level=False, show_path=False, show_time=False)
+
+
+class TestEnvironmentVariables:
+    """Test XANADU_COLOURS_LEVEL and XANADU_COLOURS_SPLIT env var parsing."""
+
+    @staticmethod
+    @patch.dict("os.environ", {"XANADU_COLOURS_LEVEL": "DEBUG", "XANADU_COLOURS_SPLIT": "ERROR"})
+    def test_env_vars_are_parsed() -> None:
+        """Test that both env vars are correctly resolved by _parse_log_level."""
+        assert _parse_log_level(os.environ["XANADU_COLOURS_LEVEL"]) == logging.DEBUG
+        assert _parse_log_level(os.environ["XANADU_COLOURS_SPLIT"]) == logging.ERROR
+
+    @staticmethod
+    @patch.dict("os.environ", {"XANADU_COLOURS_LEVEL": "INVALID_LEVEL"})
+    def test_invalid_env_var_raises() -> None:
+        """Test that an invalid env var value raises ValueError on parse."""
+        with pytest.raises(ValueError, match="Invalid log level"):
+            _parse_log_level(os.environ["XANADU_COLOURS_LEVEL"])
+
+
+class TestModifyLogFormatDetailed:
+    """Detailed tests for modify_log_format."""
+
+    @staticmethod
+    def test_creates_stdout_and_stderr_handlers(mock_handler_class: Mock, mock_logger: Mock) -> None:
+        """Test that exactly two handlers with correct defaults are created and registered."""
+        mock_handler = Mock()
+        mock_handler_class.return_value = mock_handler
+        mock_logger.handlers = []
+        mock_logger.level = logging.INFO
+
+        Colour.modify_log_format()
+
+        assert mock_handler_class.call_count == 2
+        stdout_call = mock_handler_class.call_args_list[0]
+        assert stdout_call.kwargs["stderr"] is False
+        assert stdout_call.kwargs["show_level"] is False
+        assert stdout_call.kwargs["level"] == min(logging.INFO, logging.WARNING)
+        stderr_call = mock_handler_class.call_args_list[1]
+        assert stderr_call.kwargs["stderr"] is True
+        assert stderr_call.kwargs["level"] == logging.WARNING
+        assert mock_logger.addHandler.call_count == 2
+
+    @staticmethod
+    @pytest.mark.parametrize(
+        ("logger_level", "split_level", "expected_stdout_level"),
+        [
+            (logging.ERROR, logging.WARNING, logging.WARNING),  # logger > split -> stdout gets split
+            (logging.DEBUG, logging.WARNING, logging.DEBUG),  # logger < split -> stdout gets logger
+        ],
+    )
+    def test_stdout_level_is_min_of_logger_and_split(
+        mock_handler_class: Mock,
+        mock_logger: Mock,
+        logger_level: int,
+        split_level: int,
+        expected_stdout_level: int,
+    ) -> None:
+        """Test that stdout handler level equals min(logger.level, split_level)."""
+        mock_handler_class.return_value = Mock()
+        mock_logger.handlers = []
+        mock_logger.level = logger_level
+
+        Colour.modify_log_format(stdout_filter_level=split_level)
+
+        assert mock_handler_class.call_args_list[0].kwargs["level"] == expected_stdout_level
+
+    @staticmethod
+    def test_filter_level_as_string(mock_handler_class: Mock, mock_logger: Mock) -> None:
+        """Test that stdout_filter_level accepts string level names."""
+        mock_handler_class.return_value = Mock()
+        mock_logger.handlers = []
+        mock_logger.level = logging.INFO
+
+        Colour.modify_log_format(stdout_filter_level="error")
+
+        assert mock_handler_class.call_args_list[1].kwargs["level"] == logging.ERROR
+
+    @staticmethod
+    def test_invalid_filter_level_raises(mock_logger: Mock) -> None:
+        """Test that an invalid stdout_filter_level raises ValueError."""
+        mock_logger.handlers = []
+        mock_logger.level = logging.INFO
+        with pytest.raises(ValueError, match="Invalid log level"):
+            Colour.modify_log_format(stdout_filter_level="not_a_level")
+
+    @staticmethod
+    def test_stdout_handler_gets_max_level_filter(mock_handler_class: Mock, mock_logger: Mock) -> None:
+        """Test that the stdout handler receives a MaxLevelFilter matching the split level."""
+        mock_handler = Mock()
+        mock_handler_class.return_value = mock_handler
+        mock_logger.handlers = []
+        mock_logger.level = logging.INFO
+
+        Colour.modify_log_format(stdout_filter_level=logging.ERROR)
+
+        mock_handler.addFilter.assert_called_once()
+        added = mock_handler.addFilter.call_args[0][0]
+        assert isinstance(added, MaxLevelFilter)
+        assert added.max_level == logging.ERROR
+
+    @staticmethod
+    def test_show_flags_forwarded_to_both_handlers(mock_handler_class: Mock, mock_logger: Mock) -> None:
+        """Test that show_level/path/time flags are forwarded to both stdout and stderr handlers."""
+        mock_handler_class.return_value = Mock()
+        mock_logger.handlers = []
+        mock_logger.level = logging.INFO
+
+        Colour.modify_log_format(show_level=True, show_path=True, show_time=True)
+
+        for call in mock_handler_class.call_args_list:
+            assert call.kwargs["show_level"] is True
+            assert call.kwargs["show_path"] is True
+            assert call.kwargs["show_time"] is True
+
+    @staticmethod
+    def test_only_colour_handlers_removed(mock_logger: Mock) -> None:
+        """Test that non-ColourHandler handlers survive the format change."""
+        foreign = logging.StreamHandler()
+        colour = ColourHandler()
+        mock_logger.handlers = [foreign, colour]
+        mock_logger.level = logging.INFO
+
+        Colour.modify_log_format()
+
+        mock_logger.removeHandler.assert_called_once_with(colour)
+
+
+class TestColourEnumMembers:
+    """Test Colour enum member values and structure."""
+
+    @staticmethod
+    @pytest.mark.parametrize(
+        ("member", "expected_value"),
+        [
+            ("red", "red"),
+            ("orange", "orange1"),
+            ("yellow", "yellow"),
+            ("green", "green"),
+            ("blue", "deep_sky_blue1"),
+            ("purple", "magenta"),
+            ("default", "default"),
+            ("italic", "italic"),
+            ("RED", "bold red"),
+            ("ORANGE", "bold orange1"),
+            ("YELLOW", "bold yellow"),
+            ("GREEN", "bold green"),
+            ("BLUE", "bold deep_sky_blue1"),
+            ("PURPLE", "bold magenta"),
+            ("DEFAULT", "bold default"),
+            ("BOLD", "bold default"),
+            ("ITALIC", "bold italic"),
+        ],
+    )
+    def test_member_values(member: str, expected_value: str) -> None:
+        """Test each enum member has the correct Rich markup value."""
+        assert Colour[member].value == expected_value
+
+    @staticmethod
+    def test_member_count() -> None:
+        """Test the total number of unique enum members (BOLD aliases DEFAULT, plus logger)."""
+        assert len(set(Colour.__members__.values())) == 17
+
+    @staticmethod
+    def test_logger_attribute() -> None:
+        """Test that Colour.logger is an enum member whose value is the module LOGGER."""
+        assert isinstance(Colour.logger, Colour)
+        assert Colour.logger.value is LOGGER
+
+
+class TestCallEdgeCases:
+    """Test __call__ with non-standard argument types."""
+
+    @staticmethod
+    @pytest.mark.parametrize("value", [None, 42, 1.23, True, [1, 2, 3]])
+    def test_call_with_non_string(value: object) -> None:
+        """Test that __call__ uses str() on any value."""
+        assert Colour.red(value) == f"[red]{value}[/red]"
+
+    @staticmethod
+    def test_call_with_empty_string() -> None:
+        """Test that empty string produces empty-content tags."""
+        assert Colour.red("") == "[red][/red]"
+
+    @staticmethod
+    def test_call_with_nested_colour_tags() -> None:
+        """Test that nested colour tags are preserved verbatim."""
+        inner = Colour.blue("inner")
+        assert Colour.red(inner) == "[red][deep_sky_blue1]inner[/deep_sky_blue1][/red]"
+
+
+class TestRedErrorEdgeCases:
+    """Test red_error edge cases beyond the baseline TestUtils coverage."""
+
+    @staticmethod
+    def test_no_error_in_string() -> None:
+        """Test that strings without error patterns are returned unchanged."""
+        text = "Everything is fine."
+        assert Colour.red_error(text) == text
+
+    @staticmethod
+    def test_multiple_errors_and_colon() -> None:
+        """Test multiple error words and the error-with-colon pattern."""
+        result = Colour.red_error("TypeError and ValueError: bad input")
+        assert "[bold red]TypeError[/bold red]" in result
+        assert "[bold red]ValueError:[/bold red]" in result
+
+    @staticmethod
+    def test_error_substring() -> None:
+        """Test that words containing 'error' as a substring are matched."""
+        assert "[bold red]MyCustomErrorHandler[/bold red]" in Colour.red_error("MyCustomErrorHandler")
+
+    @staticmethod
+    def test_empty_string() -> None:
+        """Test that empty string returns empty string."""
+        assert Colour.red_error("") == ""  # noqa: PLC1901
+
+
+class TestWarningErrorCriticalBehavior:
+    """Test colouring, arg forwarding, and level-gating for warning/error/critical."""
+
+    @staticmethod
+    @pytest.mark.parametrize(
+        ("method", "log_attr"),
+        [("warning", "warning"), ("error", "error"), ("critical", "critical")],
+    )
+    def test_disabled_when_level_not_enabled(mock_logger: Mock, method: str, log_attr: str) -> None:
+        """Test that no log call is made when the level is disabled."""
+        mock_logger.isEnabledFor.return_value = False
+        getattr(Colour, method)("msg")
+        getattr(mock_logger, log_attr).assert_not_called()
+
+    @staticmethod
+    def test_warning_wraps_orange_and_forwards_args(mock_logger: Mock) -> None:
+        """Test warning wraps in orange and forwards positional args and exc_info."""
+        Colour.warning("Houston, we have a %s", "problem", exc_info=True)
+        args, kwargs = mock_logger.warning.call_args
+        assert args[0] == "[orange1]Houston, we have a %s[/orange1]"
+        assert args[1] == "problem"
+        assert kwargs["exc_info"] is True
+
+    @staticmethod
+    def test_error_wraps_red_with_error_highlight(mock_logger: Mock) -> None:
+        """Test error wraps in red and applies bold-red highlighting to error words."""
+        Colour.error("MyError happened")
+        msg = mock_logger.error.call_args[0][0]
+        assert "[red]" in msg
+        assert "[bold red]MyError[/bold red]" in msg
+
+    @staticmethod
+    def test_error_without_error_word(mock_logger: Mock) -> None:
+        """Test error wrapping when the message contains no error-pattern word."""
+        Colour.error("something failed")
+        assert mock_logger.error.call_args[0][0] == "[red]something failed[/red]"
+
+    @staticmethod
+    def test_critical_wraps_bold_red(mock_logger: Mock) -> None:
+        """Test critical wraps in bold red."""
+        Colour.critical("system down")
+        assert mock_logger.critical.call_args[0][0] == "[bold red]system down[/bold red]"
+
+
+class TestLogWithIntegerLevel:
+    """Test Colour.log and instance .log with integer levels."""
+
+    @staticmethod
+    def test_log_static_with_int(mock_logger: Mock) -> None:
+        """Test Colour.log passes an integer level directly to LOGGER.log."""
+        Colour.log(logging.WARNING, "message")
+        mock_logger.log.assert_called_once_with(logging.WARNING, "message")
+
+    @staticmethod
+    def test_log_member_with_int(mock_logger: Mock) -> None:
+        """Test instance .log wraps the message and passes the integer level."""
+        Colour.green.log(logging.ERROR, "msg")
+        mock_logger.log.assert_called_once_with(logging.ERROR, "[green]msg[/green]", extra={"highlighter": None})
+
+
+class TestPrintDescriptorBehavior:
+    """Test _PrintDescriptor static vs instance dispatch."""
+
+    @staticmethod
+    def test_static_print_is_rich_print(mock_print: Mock) -> None:
+        """Test that Colour.print is rich_print itself, not a wrapper."""
+        assert Colour.print is mock_print
+
+
+class TestLogForwardingWithMultipleArgs:
+    """Test that format-string args are forwarded to the logger without modification."""
+
+    @staticmethod
+    def test_info_static_with_format_args(mock_logger: Mock) -> None:
+        """Test Colour.info forwards format args untouched."""
+        Colour.info("count: %d, name: %s", 42, "test")
+        mock_logger.info.assert_called_once_with("count: %d, name: %s", 42, "test")
+
+    @staticmethod
+    def test_info_member_with_format_args(mock_logger: Mock) -> None:
+        """Test instance .info wraps only the message string, not the format args."""
+        Colour.red.info("count: %d", 42)
+        assert mock_logger.info.call_args[0] == ("[red]count: %d[/red]", 42)
+
+    @staticmethod
+    def test_log_member_with_format_args(mock_logger: Mock) -> None:
+        """Test instance .log wraps message and forwards level and format args."""
+        Colour.blue.log("warning", "count: %d", 5)
+        assert mock_logger.log.call_args[0] == (logging.WARNING, "[deep_sky_blue1]count: %d[/deep_sky_blue1]", 5)
+
+
+class TestSetLogLevel:
+    """Test that Colour.set_log_level correctly mutates the LOGGER level."""
+
+    @staticmethod
+    def test_default_resets_to_info() -> None:
+        """Test that calling with no args sets the level to INFO."""
+        Colour.set_log_level(logging.CRITICAL)
+        Colour.set_log_level()
+        assert LOGGER.level == logging.INFO
+
+    @staticmethod
+    def test_string_and_int_levels_take_effect() -> None:
+        """Test that string and integer levels are each applied to the logger."""
+        Colour.set_log_level("debug")
+        assert LOGGER.level == logging.DEBUG
+        Colour.set_log_level(42)
+        assert LOGGER.level == 42
+        Colour.set_log_level()  # reset
+
+
+class TestLoggerInitialization:
+    """Test the logger state established at import time."""
+
+    @staticmethod
+    def test_logger_identity_and_propagation() -> None:
+        """Test logger name and that propagation is disabled."""
+        assert LOGGER.name == "xanadu.colours"
+        assert LOGGER.propagate is False
+
+    @staticmethod
+    def test_has_stdout_and_stderr_colour_handlers() -> None:
+        """Test that at least one stdout and one stderr ColourHandler are attached."""
+        colour_handlers = [h for h in LOGGER.handlers if isinstance(h, ColourHandler)]
+        assert any(not h.console.stderr for h in colour_handlers), "No stdout ColourHandler found"
+        assert any(h.console.stderr for h in colour_handlers), "No stderr ColourHandler found"
+
+    @staticmethod
+    def test_stdout_handler_has_max_level_filter() -> None:
+        """Test that the stdout handler has exactly one MaxLevelFilter."""
+        stdout = next(h for h in LOGGER.handlers if isinstance(h, ColourHandler) and not h.console.stderr)
+        assert len([f for f in stdout.filters if isinstance(f, MaxLevelFilter)]) == 1
+
+    @staticmethod
+    def test_all_exports() -> None:
+        """Test that __all__ declares exactly the expected public names."""
+        import colours  # noqa: PLC0415
+
+        assert set(colours.__all__) == {"LOGGER", "Color", "Colour", "ColourHandler"}
+
+
+class TestExtraParameterEdgeCases:
+    """Test highlighter injection and user-extra merging across all logging paths."""
+
+    @staticmethod
+    def test_static_path_does_not_inject_extra(mock_logger: Mock) -> None:
+        """Test that Colour.info (static path) passes no extra kwarg to the logger."""
+        Colour.info("msg")
+        assert "extra" not in mock_logger.info.call_args.kwargs
+
+    @staticmethod
+    def test_member_path_injects_highlighter(mock_logger: Mock) -> None:
+        """Test that instance .info injects extra={'highlighter': None}."""
+        Colour.red.info("msg")
+        assert mock_logger.info.call_args.kwargs["extra"] == {"highlighter": None}
+
+    @staticmethod
+    def test_warning_error_critical_inject_highlighter(mock_logger: Mock) -> None:
+        """Test that warning/error/critical each inject highlighter=None."""
+        Colour.warning("w")
+        assert mock_logger.warning.call_args.kwargs["extra"]["highlighter"] is None
+        Colour.error("e")
+        assert mock_logger.error.call_args.kwargs["extra"]["highlighter"] is None
+        Colour.critical("c")
+        assert mock_logger.critical.call_args.kwargs["extra"]["highlighter"] is None
+
+    @staticmethod
+    def test_user_extra_is_merged_and_highlighter_defaults_to_none(mock_logger: Mock) -> None:
+        """Test that user extra keys are preserved alongside the default highlighter."""
+        Colour.warning("msg", extra={"request_id": "abc"})
+        extra = mock_logger.warning.call_args.kwargs["extra"]
+        assert extra["request_id"] == "abc"
+        assert extra["highlighter"] is None
+
+    @staticmethod
+    def test_user_can_override_highlighter(mock_logger: Mock) -> None:
+        """Test that a user-supplied highlighter value overrides the None default."""
+        Colour.warning("msg", extra={"highlighter": "custom"})
+        assert mock_logger.warning.call_args.kwargs["extra"]["highlighter"] == "custom"
+
+    @staticmethod
+    @pytest.mark.usefixtures("mock_logger")
+    def test_original_extra_not_mutated() -> None:
+        """Test that the caller's extra dict is not modified in place."""
+        original = {"key": "val"}
+        snapshot = original.copy()
+        Colour.warning("msg", extra=original)
+        assert original == snapshot
