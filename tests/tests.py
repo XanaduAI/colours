@@ -631,6 +631,26 @@ class TestEnvironmentVariables:
         assert _parse_log_level(os.environ["XANADU_COLOURS_SPLIT"]) == logging.ERROR
 
     @staticmethod
+    def test_env_vars_are_parsed_on_import() -> None:
+        """Test that XANADU_COLOURS_LEVEL and XANADU_COLOURS_SPLIT are read at import time."""
+        from subprocess import run  # noqa: PLC0415
+        from sys import executable  # noqa: PLC0415
+
+        debug_msg = "this is a debug log"
+        error_msg = "this is an error log"
+        code = f"from colours import Colour; Colour.debug('{debug_msg}'); Colour.error('{error_msg}');"
+        res = run(
+            [executable, "-c", code],
+            check=False,
+            text=True,
+            capture_output=True,
+            env=os.environ.copy() | {"XANADU_COLOURS_LEVEL": "DEBUG", "XANADU_COLOURS_SPLIT": "ERROR"},
+        )
+        assert res.returncode == 0
+        assert debug_msg in res.stdout, res.stdout
+        assert error_msg in res.stderr, res.stderr
+
+    @staticmethod
     @patch.dict("os.environ", {"XANADU_COLOURS_LEVEL": "INVALID_LEVEL"})
     def test_invalid_env_var_raises() -> None:
         """Test that an invalid env var value raises ValueError on parse."""
