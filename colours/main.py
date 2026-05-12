@@ -35,9 +35,9 @@ class ColourHandler(RichHandler):
 
     def __init__(
         self,
-        show_level: bool = False,
-        show_path: bool = False,
-        show_time: bool = False,
+        show_level: bool = True,
+        show_path: bool = True,
+        show_time: bool = True,
         *,
         level: int = logging.NOTSET,
         stderr: bool = True,
@@ -106,9 +106,21 @@ def _parse_log_level(level: str | int) -> int:
 LOGGER = logging.getLogger("xanadu.colours")
 XANADU_COLOURS_LEVEL = _parse_log_level(os.getenv("XANADU_COLOURS_LEVEL", logging.INFO))
 XANADU_COLOURS_SPLIT = _parse_log_level(os.getenv("XANADU_COLOURS_SPLIT", logging.WARNING))
-_stdout_hndlr = ColourHandler(level=XANADU_COLOURS_LEVEL, stderr=False)
+_stdout_hndlr = ColourHandler(
+    show_level=False,
+    show_path=False,
+    show_time=False,
+    level=min(XANADU_COLOURS_LEVEL, XANADU_COLOURS_SPLIT),
+    stderr=False,
+)
 _stdout_hndlr.addFilter(MaxLevelFilter(XANADU_COLOURS_SPLIT))
-_stderr_hndlr = ColourHandler(level=max(XANADU_COLOURS_LEVEL, XANADU_COLOURS_SPLIT), stderr=True)
+_stderr_hndlr = ColourHandler(
+    show_level=False,
+    show_path=False,
+    show_time=False,
+    level=XANADU_COLOURS_SPLIT,
+    stderr=True,
+)
 LOGGER.addHandler(_stdout_hndlr)
 LOGGER.addHandler(_stderr_hndlr)
 LOGGER.setLevel(XANADU_COLOURS_LEVEL)
@@ -376,7 +388,13 @@ class Colour(Enum):
             stderr=False,
         )
         stdout_hndlr.addFilter(MaxLevelFilter(filter_split))
-        stderr_hndlr = ColourHandler(level=filter_split, stderr=True)
+        stderr_hndlr = ColourHandler(
+            show_level=show_level,
+            show_path=show_path,
+            show_time=show_time,
+            level=filter_split,
+            stderr=True,
+        )
         LOGGER.addHandler(stdout_hndlr)
         LOGGER.addHandler(stderr_hndlr)
 

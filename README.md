@@ -129,7 +129,7 @@ clean_text = Colour.remove_ansi(ansi_text)
 assert clean_text == "Hello, Red World!" # True
 
 # Rainbow colours
-clrs = [c for c in Colour if not any(attr in c.value for attr in ["bold", "default", "italic"])]
+clrs = [c for c in Colour if c != Colour.logger and not any(attr in c.value for attr in ["bold", "default", "italic"])]
 message = "Hello! This is a message written in cycling rainbow colours for each word.".split()
 n = len(clrs)
 Colour.print(*(clrs[i % n](word) for i, word in enumerate(message)))

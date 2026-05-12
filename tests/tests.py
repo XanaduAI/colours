@@ -487,11 +487,14 @@ class TestModifyLogFormat:
     """Test the modify_log_format method."""
 
     @staticmethod
+    @patch("colours.main.LOGGER")
     @patch("colours.main.ColourHandler")
-    def test_modify_log_format_all_options(mock_handler_class: Mock) -> None:
+    def test_modify_log_format_all_options(mock_handler_class: Mock, mock_logger: Mock) -> None:
         """Test modify_log_format with all options enabled."""
         mock_handler = Mock()
         mock_handler_class.return_value = mock_handler
+        mock_logger.handlers = []
+        mock_logger.level = 20  # INFO level
 
         Colour.modify_log_format(show_level=True, show_path=True, show_time=True)
 
@@ -515,4 +518,4 @@ class TestModifyLogFormat:
         # Verify that both the ColourHandlers were removed, then one was re-added.
         assert mock_logger.removeHandler.call_count == 2
         mock_logger.removeHandler.assert_called_with(colour_handler)
-        mock_logger.addHandler.assert_called_once()
+        assert mock_logger.addHandler.call_count == 2
