@@ -14,6 +14,7 @@
 """Simplified colours for Python terminal applications."""
 
 import logging
+import operator
 import os
 import re
 import shutil
@@ -43,6 +44,7 @@ class ColourHandler(RichHandler):
         stderr: bool = True,
     ) -> None:
         super().__init__(
+            level=level,
             console=Console(stderr=stderr),
             markup=True,
             show_time=show_time,
@@ -50,7 +52,6 @@ class ColourHandler(RichHandler):
             show_path=show_path,
             show_level=show_level,
         )
-        self.setLevel(level)
 
 
 class MaxLevelFilter(logging.Filter):
@@ -95,41 +96,62 @@ def _parse_log_level(level: str | int) -> int:
         return int(level)
     with suppress(AttributeError):
         return getattr(logging, level.upper())
-    valid_levels = ", ".join(
-        sorted(
-            [name for name in dir(logging) if name.isupper() and isinstance(getattr(logging, name), int)],
-            key=lambda attr: getattr(logging, attr),
-        )
-    )
+    valid_levels = ", ".join([k for k, v in sorted(logging.getLevelNamesMapping().items(), key=operator.itemgetter(1))])
     msg = f"Invalid log level '{level}'. Valid levels are: {valid_levels}"
     raise ValueError(msg)
+
+
+def attach_split_handlers(
+    logger: logging.Logger,
+    logger_level: int,
+    split_level: int,
+    show_level: bool = False,
+    show_path: bool = False,
+    show_time: bool = False,
+) -> None:
+    """Attach a stdout/stderr pair of ColourHandlers to *logger*.
+
+    Records below *split_level* are routed to stdout; records at or above it
+    go to stderr.  *logger_level* is used to set the stdout handler's minimum
+    level to ``min(logger_level, split_level)`` so that no records are lost.
+
+    Args:
+        logger: The :class:`logging.Logger` to attach handlers to.
+        logger_level: The effective level of *logger*.
+        split_level: Severity threshold that splits stdout from stderr.
+        show_level: Forward to :class:`ColourHandler` ``show_level``.
+        show_path: Forward to :class:`ColourHandler` ``show_path``.
+        show_time: Forward to :class:`ColourHandler` ``show_time``.
+
+    """
+    stdout_hndlr = ColourHandler(
+        show_level=show_level,
+        show_path=show_path,
+        show_time=show_time,
+        level=min(logger_level, split_level),
+        stderr=False,
+    )
+    stdout_hndlr.addFilter(MaxLevelFilter(split_level))
+    stderr_hndlr = ColourHandler(
+        show_level=show_level,
+        show_path=show_path,
+        show_time=show_time,
+        level=split_level,
+        stderr=True,
+    )
+    logger.addHandler(stdout_hndlr)
+    logger.addHandler(stderr_hndlr)
+    logger.setLevel(logger_level)
 
 
 # This library requires the RichHandler to render markup correctly.
 # We configure the logger at import time to guarantee Colour logging works out-of-the-box.
 # Users can adjust verbosity with Colour.set_log_level() or XANADU_COLOURS_LEVEL as needed.
-LOGGER = logging.getLogger("xanadu.colours")
 XANADU_COLOURS_LEVEL = _parse_log_level(os.getenv("XANADU_COLOURS_LEVEL", logging.INFO))
 XANADU_COLOURS_SPLIT = _parse_log_level(os.getenv("XANADU_COLOURS_SPLIT", logging.WARNING))
-_stdout_hndlr = ColourHandler(
-    show_level=False,
-    show_path=False,
-    show_time=False,
-    level=min(XANADU_COLOURS_LEVEL, XANADU_COLOURS_SPLIT),
-    stderr=False,
-)
-_stdout_hndlr.addFilter(MaxLevelFilter(XANADU_COLOURS_SPLIT))
-_stderr_hndlr = ColourHandler(
-    show_level=False,
-    show_path=False,
-    show_time=False,
-    level=XANADU_COLOURS_SPLIT,
-    stderr=True,
-)
-LOGGER.addHandler(_stdout_hndlr)
-LOGGER.addHandler(_stderr_hndlr)
-LOGGER.setLevel(XANADU_COLOURS_LEVEL)
+LOGGER = logging.getLogger("xanadu.colours")
 LOGGER.propagate = False
+attach_split_handlers(LOGGER, XANADU_COLOURS_LEVEL, XANADU_COLOURS_SPLIT)
 
 
 class _PrintDescriptor:
@@ -393,25 +415,9 @@ class Colour(Enum):
         for handler in rm_hndlrs:
             LOGGER.removeHandler(handler)
 
-        # Add a new handler with the updated format
+        # Add new handlers with the updated format
         filter_split = _parse_log_level(stdout_filter_level)
-        stdout_hndlr = ColourHandler(
-            show_level=show_level,
-            show_path=show_path,
-            show_time=show_time,
-            level=min(LOGGER.level, filter_split),
-            stderr=False,
-        )
-        stdout_hndlr.addFilter(MaxLevelFilter(filter_split))
-        stderr_hndlr = ColourHandler(
-            show_level=show_level,
-            show_path=show_path,
-            show_time=show_time,
-            level=filter_split,
-            stderr=True,
-        )
-        LOGGER.addHandler(stdout_hndlr)
-        LOGGER.addHandler(stderr_hndlr)
+        attach_split_handlers(LOGGER, LOGGER.level, filter_split, show_level, show_path, show_time)
 
 
 # American English alias
