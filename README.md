@@ -14,7 +14,7 @@ pip install git+https://github.com/XanaduAI/colours.git
 
 ## Requirements
 
-- Python >= 3.10
+- Python >= 3.11
 - rich >= 13.9.4
 
 ## Features
