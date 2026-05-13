@@ -42,7 +42,7 @@ def mock_logger():
 
 @pytest.fixture
 def mock_handler_class():
-    """Mock the logger for testing."""
+    """Mock the ColourHandler class for testing."""
     with patch("colours.main.ColourHandler") as ch:
         yield ch
 

@@ -74,16 +74,21 @@ class MaxLevelFilter(logging.Filter):
 
 
 def _parse_log_level(level: str | int) -> int:
-    """Parse a string log level and raise ValueError if invalid.
+    """Parse a log level value and return its integer representation.
+
+    Accepts an integer, an integer-string, or a standard logging level
+    name (debug, INFO, etc.). Level names are matched case-insensitively.
 
     Args:
-        level: A string log level name (e.g., 'DEBUG', 'INFO').
+        level: An integer log level, an integer-string that can be coerced to
+            an integer, or a named logging level string.
 
     Returns:
         The integer log level.
 
     Raises:
-        ValueError: If the string level name is not a valid logging level.
+        ValueError: If *level* is a non-numeric string that does not match
+            any standard logging level name.
 
     """
     with suppress(ValueError):
@@ -375,7 +380,9 @@ class Colour(Enum):
             show_level: shows the log level (DEBUG, INFO, etc.).
             show_path: shows where the log was generated from.
             show_time: shows the local time when the log was generated.
-            stdout_filter_level: set STDOUT/STDERR set the filter cuttoff.
+            stdout_filter_level: severity threshold at which log records switch
+                from stdout to stderr.  Records below this level go to stdout;
+                records at or above it go to stderr.
 
         Example:
             Colour.modify_log_format(show_level=True, show_time=True)
