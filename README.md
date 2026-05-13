@@ -14,7 +14,7 @@ pip install git+https://github.com/XanaduAI/colours.git
 
 ## Requirements
 
-- Python >= 3.10
+- Python >= 3.11
 - rich >= 13.9.4
 
 ## Features
@@ -27,7 +27,9 @@ pip install git+https://github.com/XanaduAI/colours.git
 - **Utility functions**: Error highlighting and ANSI escape sequence removal.
 - **Rich print integration**: Leverages Rich's powerful terminal formatting.
 - **Rich logging integration**: Leverages Rich's log formatting to print colourful logs to the console.
-- **Logger access**: Direct access to the colours logger via `from colours import LOGGER`.
+- **Stdout/stderr log routing**: Messages below `WARNING` go to stdout; `WARNING` and above go to stderr.
+- **Environment variable configuration**: Set `XANADU_COLOURS_LEVEL` and `XANADU_COLOURS_SPLIT` to configure logging at startup without code changes.
+- **Logger access**: Direct access to the colours logger via `Colour.logger` or `from colours import LOGGER`.
     - Pre-configured with `RichHandler` and `INFO` level.
     - Can be customized for advanced usage.
 
@@ -85,6 +87,10 @@ using the callable wrap or coloured automatically in orange, red, and bold-red w
 can be made using the `Colour.log` method by providing the appropriate logging level.
 The default logging level for the `colours` logger is set as `INFO` or `20`.
 
+Log records are automatically routed by severity: messages below `WARNING` are written to **stdout**,
+while `WARNING` and above are written to **stderr**. This threshold can be changed at startup via the
+`XANADU_COLOURS_SPLIT` environment variable (see Advanced Logging).
+
 As usual, it is best practice to use the built-in string interpolation provided by the logging
 module rather than f-strings. This approach defers string formatting until it is necessary,
 improving performance. If you were to use f-strings or concatenation, the string would be
@@ -129,7 +135,7 @@ clean_text = Colour.remove_ansi(ansi_text)
 assert clean_text == "Hello, Red World!" # True
 
 # Rainbow colours
-clrs = [c for c in Colour if not any(attr in c.value for attr in ["bold", "default", "italic"])]
+clrs = [c for c in Colour if c != Colour.logger and not any(attr in c.value for attr in ["bold", "default", "italic"])]
 message = "Hello! This is a message written in cycling rainbow colours for each word.".split()
 n = len(clrs)
 Colour.print(*(clrs[i % n](word) for i, word in enumerate(message)))
@@ -153,6 +159,9 @@ colour_logger.setLevel(logging.DEBUG)
 from colours import LOGGER
 LOGGER.setLevel(logging.DEBUG)
 
+# Option 3: Access logger directly from the Colour enum
+Colour.logger.setLevel(logging.DEBUG)
+
 # Any custom log can be given by using the `Colour.log` method and choosing the logging level.
 value = 123
 Colour.log("debug", "This is a basic debug log with a custom value: %s.", value)
@@ -166,6 +175,22 @@ Colour.green.log("critical", Colour.ITALIC("This is a bold italicized green crit
 # Logs can also be silenced by setting a higher logging level.
 colour_logger.setLevel(100)
 Colour.critical("Silence even critical logs.")
+
+# Modify the display format and stdout/stderr split threshold.
+# By default, records below WARNING go to stdout and WARNING+ go to stderr.
+Colour.modify_log_format(show_level=True, show_time=True, stdout_filter_level=logging.ERROR)
+# Now INFO/DEBUG/WARNING go to stdout, ERROR+ go to stderr.
+```
+
+The logging level and stdout/stderr split threshold can also be set **before importing** the library
+via environment variables:
+
+```bash
+# Set the initial log level (default: INFO).
+export XANADU_COLOURS_LEVEL=DEBUG
+
+# Set the level at which logs switch from stdout to stderr (default: WARNING).
+export XANADU_COLOURS_SPLIT=ERROR
 ```
 
 ## API Reference
@@ -188,6 +213,17 @@ Colour.critical("Silence even critical logs.")
 - `error(*args, **kwargs)`: Always logs error statements in red, highlighting with **bold** words containing `error`.
 - `critical(*args, **kwargs)`: Always logs critical statements in BOLD RED.
 - `log(level, *args, **kwargs)`: Flexible logging statements for additional customizations.
+
+#### Configuration Methods
+- `set_log_level(level: int | str)`: Sets the logging verbosity level globally.
+- `modify_log_format(show_level, show_path, show_time, *, stdout_filter_level)`: Adjusts handler display options and the level at which logs are routed from stdout to stderr.
+
+#### Logger Attribute
+- `logger`: Direct reference to the underlying `logging.Logger` instance (`xanadu.colours`). Equivalent to `from colours import LOGGER`.
+
+#### Environment Variables
+- `XANADU_COLOURS_LEVEL`: Sets the initial log level at import time (default: `INFO`).
+- `XANADU_COLOURS_SPLIT`: Sets the level at which log records switch from stdout to stderr at import time (default: `WARNING`).
 
 ## Alias
 
