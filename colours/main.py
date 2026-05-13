@@ -186,6 +186,14 @@ class _PredefinedLogDescriptor:
         return log_func
 
 
+class _LoggerDescriptor:
+    """Descriptor that returns the underlying LOGGER directly, bypassing enum member wrapping."""
+
+    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> logging.Logger:
+        """Return the module-level LOGGER regardless of access context."""
+        return LOGGER
+
+
 class _VersatileLogDescriptor:
     """Descriptor for versatile log method that takes level as first argument."""
 
@@ -255,7 +263,7 @@ class Colour(Enum):
         """Return argument as a string wrapped in colour tags."""
         return f"[{self.value}]{string}[/{self.value}]"
 
-    logger = LOGGER
+    logger = _LoggerDescriptor()
 
     print = _PrintDescriptor()
     info = _PredefinedLogDescriptor("info")

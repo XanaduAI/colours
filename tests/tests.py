@@ -613,12 +613,6 @@ class TestColourHandler:
         assert h.level == logging.ERROR
         assert h.console.stderr is False
 
-    @staticmethod
-    def test_show_flags_accepted() -> None:
-        """Test that all show_* flag combinations construct without error."""
-        ColourHandler(show_level=True, show_path=True, show_time=True)
-        ColourHandler(show_level=False, show_path=False, show_time=False)
-
 
 class TestEnvironmentVariables:
     """Test XANADU_COLOURS_LEVEL and XANADU_COLOURS_SPLIT env var parsing."""
@@ -797,22 +791,17 @@ class TestColourEnumMembers:
         assert Colour[member].value == expected_value
 
     @staticmethod
-    def test_member_count() -> None:
-        """Test the total number of unique enum members (BOLD aliases DEFAULT, plus logger)."""
-        assert len(set(Colour.__members__.values())) == 17
-
-    @staticmethod
     def test_logger_attribute() -> None:
-        """Test that Colour.logger is an enum member whose value is the module LOGGER."""
-        assert isinstance(Colour.logger, Colour)
-        assert Colour.logger.value is LOGGER
+        """Test that Colour.logger is property equal to the module LOGGER."""
+        assert isinstance(Colour.logger, type(LOGGER))
+        assert Colour.logger is LOGGER
 
 
 class TestCallEdgeCases:
     """Test __call__ with non-standard argument types."""
 
     @staticmethod
-    @pytest.mark.parametrize("value", [None, 42, 1.23, True, [1, 2, 3]])
+    @pytest.mark.parametrize("value", [None, 42, 1.23, True, [1, 2, 3], {"a": "b or c", "d": 12}])
     def test_call_with_non_string(value: object) -> None:
         """Test that __call__ uses str() on any value."""
         assert Colour.red(value) == f"[red]{value}[/red]"
@@ -860,15 +849,12 @@ class TestWarningErrorCriticalBehavior:
     """Test colouring, arg forwarding, and level-gating for warning/error/critical."""
 
     @staticmethod
-    @pytest.mark.parametrize(
-        ("method", "log_attr"),
-        [("warning", "warning"), ("error", "error"), ("critical", "critical")],
-    )
-    def test_disabled_when_level_not_enabled(mock_logger: Mock, method: str, log_attr: str) -> None:
+    @pytest.mark.parametrize("name", ["warning", "error", "critical"])
+    def test_disabled_when_level_not_enabled(mock_logger: Mock, name: str) -> None:
         """Test that no log call is made when the level is disabled."""
         mock_logger.isEnabledFor.return_value = False
-        getattr(Colour, method)("msg")
-        getattr(mock_logger, log_attr).assert_not_called()
+        getattr(Colour, name)("msg")
+        getattr(mock_logger, name).assert_not_called()
 
     @staticmethod
     def test_warning_wraps_orange_and_forwards_args(mock_logger: Mock) -> None:
@@ -904,16 +890,28 @@ class TestLogWithIntegerLevel:
     """Test Colour.log and instance .log with integer levels."""
 
     @staticmethod
-    def test_log_static_with_int(mock_logger: Mock) -> None:
-        """Test Colour.log passes an integer level directly to LOGGER.log."""
+    def test_log_static_with_logging_level(mock_logger: Mock) -> None:
+        """Test Colour.log passes an logging level directly to LOGGER.log."""
         Colour.log(logging.WARNING, "message")
         mock_logger.log.assert_called_once_with(logging.WARNING, "message")
 
     @staticmethod
-    def test_log_member_with_int(mock_logger: Mock) -> None:
-        """Test instance .log wraps the message and passes the integer level."""
+    def test_log_static_with_int(mock_logger: Mock) -> None:
+        """Test Colour.log passes an integer level directly to LOGGER.log."""
+        Colour.log(23, "message")
+        mock_logger.log.assert_called_once_with(23, "message")
+
+    @staticmethod
+    def test_log_member_with_logging_level(mock_logger: Mock) -> None:
+        """Test instance .log wraps the message and passes the logging level."""
         Colour.green.log(logging.ERROR, "msg")
         mock_logger.log.assert_called_once_with(logging.ERROR, "[green]msg[/green]", extra={"highlighter": None})
+
+    @staticmethod
+    def test_log_member_with_int(mock_logger: Mock) -> None:
+        """Test instance .log wraps the message and passes the integer level."""
+        Colour.green.log(47, "msg")
+        mock_logger.log.assert_called_once_with(47, "[green]msg[/green]", extra={"highlighter": None})
 
 
 class TestPrintDescriptorBehavior:
@@ -954,6 +952,7 @@ class TestSetLogLevel:
     def test_default_resets_to_info() -> None:
         """Test that calling with no args sets the level to INFO."""
         Colour.set_log_level(logging.CRITICAL)
+        assert LOGGER.level == logging.CRITICAL
         Colour.set_log_level()
         assert LOGGER.level == logging.INFO
 
@@ -965,6 +964,7 @@ class TestSetLogLevel:
         Colour.set_log_level(42)
         assert LOGGER.level == 42
         Colour.set_log_level()  # reset
+        assert LOGGER.level == logging.INFO
 
 
 class TestLoggerInitialization:

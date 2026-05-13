@@ -13,6 +13,7 @@
 # limitations under the License.
 """Colour README Tests."""
 
+import linecache
 import re
 from pathlib import Path
 
@@ -27,8 +28,14 @@ def test_readme_code_blocks():
     content = README_PATH.read_text(encoding="utf-8")
 
     # Regex to find python code blocks
-    code_blocks = re.findall(r"```python\n(.*?)```", content, re.DOTALL)
+    for i, match in enumerate(re.finditer(r"```python\n(.*?)```", content, re.DOTALL), start=1):
+        block = match.group(1)
+        readme_line = content[: match.start()].count("\n") + 2  # line after ```python
+        filename = f"README.md (block {i}, line {readme_line})"
 
-    for block in code_blocks:
+        # Register source with linecache so tracebacks display the actual code lines
+        lines = block.splitlines(keepends=True)
+        linecache.cache[filename] = (len(block), None, lines, filename)
+
         # Execute the code block with its own scope
-        exec(block, {"__name__": "__main__"})  # noqa: S102
+        exec(compile(block, filename, "exec"), {"__name__": "__main__"})  # noqa: S102
