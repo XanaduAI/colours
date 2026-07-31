@@ -193,6 +193,38 @@ export XANADU_COLOURS_LEVEL=DEBUG
 export XANADU_COLOURS_SPLIT=ERROR
 ```
 
+### Spinner Usage
+
+`colours` also provides a class-level singleton spinner for lightweight progress indicators.
+
+```python
+from colours import Spinner
+
+# Context-manager usage (automatically starts and stops).
+with Spinner:
+    Spinner.text = "Compiling workflow..."
+
+# Context-manager usage with initial text and options.
+with Spinner("Initial message...", style="green", speed=1.2):
+    Spinner.text = "Running optimization..."
+
+# Use a specific spinner by name (default is random each time).
+with Spinner("Submitting...", name="dots"):
+    Spinner.text = "Running optimization..."
+
+# Manual lifecycle usage.
+Spinner.start("Submitting task...")
+Spinner.text = "Running optimization..."
+Spinner.stop()
+```
+
+Notes:
+- By default a random spinner animation is chosen each time `start()` is called. Pass `name="dots"` (or any key from Rich's spinner registry) for a deterministic choice.
+- `Spinner.start(...)` is safe to call repeatedly: if a spinner is already active, calling `start` again updates the spinner text (when a non-empty message is provided) and does not create a second spinner.
+- `Spinner.text` can be updated at any time while active.
+- `Spinner.stop()` is safe to call even if no spinner is running.
+- `Spinner` is **not** thread-safe. Do not call `start`/`stop` concurrently from multiple threads.
+
 ## API Reference
 
 ### Colour Enum
@@ -224,6 +256,14 @@ export XANADU_COLOURS_SPLIT=ERROR
 #### Environment Variables
 - `XANADU_COLOURS_LEVEL`: Sets the initial log level at import time (default: `INFO`).
 - `XANADU_COLOURS_SPLIT`: Sets the level at which log records switch from stdout to stderr at import time (default: `WARNING`).
+
+### Spinner
+
+- `Spinner.start(message: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0)`: Starts a live spinner. Pass `name` to select a specific animation; defaults to a random choice.
+- `Spinner.stop()`: Stops the active spinner (no-op if already stopped).
+- `Spinner.text`: Gets or sets the spinner text while running.
+- `with Spinner:`: Context-manager lifecycle for automatic start/stop.
+- `with Spinner("msg", *, name=..., style=..., speed=...):`: Context-manager with initial message and options.
 
 ## Alias
 

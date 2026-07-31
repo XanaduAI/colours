@@ -22,15 +22,28 @@ from collections.abc import Callable
 from contextlib import suppress
 from enum import Enum
 from functools import wraps
+from random import choice
 from typing import Any, overload
 
 from rich import print as rich_print
 from rich.console import Console
+from rich.live import Live
 from rich.logging import RichHandler
+
+try:
+    from rich.spinner import SPINNERS
+    from rich.spinner import Spinner as rich_Spinner
+except ImportError:  # pragma: no cover
+    from rich._spinners import SPINNERS  # noqa: PLC2701
+    from rich.spinner import Spinner as rich_Spinner
+
+# Keep an unpatched runtime type handle for isinstance checks.
+_RICH_SPINNER_TYPE = rich_Spinner
 
 width, _ = shutil.get_terminal_size()
 
 
+# region ColourHandler
 class ColourHandler(RichHandler):
     """A custom instance of the RichHandler class."""
 
@@ -154,6 +167,7 @@ LOGGER.propagate = False
 attach_split_handlers(LOGGER, XANADU_COLOURS_LEVEL, XANADU_COLOURS_SPLIT)
 
 
+# region Colour Descriptors
 class _PrintDescriptor:
     """Descriptor to handle both static and instance print methods.
 
@@ -262,6 +276,7 @@ class _VersatileLogDescriptor:
         return log
 
 
+# region Colour Enum
 class Colour(Enum):
     """Wrap, print, or, log text using Rich colours."""
 
@@ -422,3 +437,126 @@ class Colour(Enum):
 
 # American English alias
 Color = Colour
+
+
+# region Spinner
+class _SpinnerContext:
+    """Context manager for Spinner(...)-style usage."""
+
+    def __init__(
+        self,
+        spinner_cls: "_SpinnerMeta",
+        message: str = "",
+        *,
+        name: str | None = None,
+        style: str | None = None,
+        speed: float = 1.0,
+    ) -> None:
+        self._spinner_cls = spinner_cls
+        self._message = message
+        self._name = name
+        self._style = style
+        self._speed = speed
+
+    def __enter__(self) -> None:
+        self._spinner_cls.start(self._message, name=self._name, style=self._style, speed=self._speed)
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+        self._spinner_cls.stop()
+        return False
+
+
+class _SpinnerMeta(type):
+    _live: "Live | None" = None
+    _spinner: "rich_Spinner | None" = None
+
+    def __init__(cls, name: str, bases: tuple[type, ...], namespace: dict[str, Any]) -> None:
+        super().__init__(name, bases, namespace)
+
+        # Remove difficult-to-see toggle spinners and register XanaduAI custom spinners.
+        for spinner_name in tuple(SPINNERS):
+            if "toggle" in spinner_name:
+                SPINNERS.pop(spinner_name, None)
+        SPINNERS["xanaduai"] = {
+            "interval": 120,
+            "frames": [
+                "|XanaduAI    |",
+                "| XanaduAI   |",
+                "|  XanaduAI  |",
+                "|   XanaduAI |",
+                "|    XanaduAI|",
+                "|   XanaduAI |",
+                "|  XanaduAI  |",
+                "| XanaduAI   |",
+            ],
+        }
+        SPINNERS["xanaduai_ticker"] = {
+            "interval": 100,
+            "frames": [
+                "|XNDU      |",
+                "| XNDU     |",
+                "|  XNDU    |",
+                "|   XNDU   |",
+                "|    XNDU  |",
+                "|     XNDU |",
+                "|      XNDU|",
+                "|U      XND|",
+                "|DU      XN|",
+                "|NDU      X|",
+            ],
+        }
+
+    def start(cls, message: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0) -> None:
+        """Start a live spinner.
+
+        If a spinner is already active, updates its text (when *message* is
+        non-empty) and returns without creating a second spinner.
+
+        Note:
+            This class is **not** thread-safe. Do not call ``start``/``stop``
+            concurrently from multiple threads.
+
+        """
+        if cls._live is not None:
+            if message and cls._spinner is not None:
+                cls._spinner.text = str(message)
+            return
+        spinner_name = name or choice(sorted(SPINNERS.keys()))
+        cls._spinner = rich_Spinner(spinner_name, message, style=style, speed=speed)
+        cls._live = Live(cls._spinner, refresh_per_second=20)
+        cls._live.start()
+
+    def stop(cls) -> None:
+        if cls._live is not None:
+            try:
+                cls._live.stop()
+            finally:
+                cls._live = None
+                cls._spinner = None
+
+    @property
+    def text(cls) -> str:
+        if cls._spinner is not None:
+            return str(cls._spinner.text)
+        return ""
+
+    @text.setter
+    def text(cls, value: str) -> None:
+        if cls._spinner is not None:
+            cls._spinner.text = value
+
+    def __enter__(cls) -> None:
+        cls.start()
+
+    def __exit__(cls, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+        cls.stop()
+        return False
+
+    def __call__(
+        cls, message: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0
+    ) -> _SpinnerContext:
+        return _SpinnerContext(cls, message, name=name, style=style, speed=speed)
+
+
+class Spinner(metaclass=_SpinnerMeta):
+    """A class-level singleton spinner backed by Rich Live."""
