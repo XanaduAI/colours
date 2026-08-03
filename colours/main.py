@@ -398,7 +398,11 @@ class Colour(Enum):
             using the `xanadu.colours` logger. This is a global setting.
 
         """
-        LOGGER.setLevel(_parse_log_level(level) if isinstance(level, str) else level)
+        parsed = _parse_log_level(level) if isinstance(level, str) else level
+        LOGGER.setLevel(parsed)
+        for h in LOGGER.handlers:
+            if isinstance(h, ColourHandler) and not h.console.stderr and h.level > parsed:
+                h.setLevel(parsed)
 
     @staticmethod
     def modify_log_format(
@@ -492,6 +496,27 @@ def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> "
     return rich_Spinner(name, text, style=style, speed=speed)
 
 
+class _SpinnerContext:
+    """Per-call context object for parametrised ``with Spinner(...)`` blocks.
+
+    Carries its own args so that no shared state is stashed on the class.
+    """
+
+    __slots__ = ("_cls", "_kwargs")
+
+    def __init__(self, cls: "_SpinnerMeta", **kwargs: Any) -> None:
+        self._cls = cls
+        self._kwargs = kwargs
+
+    def __enter__(self) -> "_SpinnerMeta":
+        self._cls.start(**self._kwargs)
+        return self._cls
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+        self._cls.stop()
+        return False
+
+
 class _SpinnerMeta(type):
     """Metaclass implementing the class-level singleton spinner.
 
@@ -504,16 +529,14 @@ class _SpinnerMeta(type):
     _spinner: "rich_Spinner | None" = None
     # Reference count of active start()/context "enters" that own the spinner.
     _depth: int = 0
-    # Kwargs stashed by __call__ for the __enter__ that follows in a with block.
-    _pending: "dict[str, Any] | None" = None
 
-    def start(cls, message: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0) -> None:
+    def start(cls, msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0) -> None:
         """Start a live spinner, or nest into the already-active one.
 
         Every :meth:`start` opens a nesting level; the spinner is only torn
         down once a matching :meth:`stop` closes the outermost level. If a
         spinner is already active the existing one is reused and its text is
-        updated when *message* is non-empty; no second spinner is created.
+        updated when *msg* is non-empty; no second spinner is created.
 
         Note:
             This class is **not** thread-safe. Do not call ``start``/``stop``
@@ -522,13 +545,25 @@ class _SpinnerMeta(type):
         """
         cls._depth += 1
         if cls._live is not None:
-            if message and cls._spinner is not None:
-                cls._spinner.text = str(message)
+            if msg and cls._spinner is not None:
+                cls._spinner.text = str(msg)
+                Colour.debug("Spinner: %s", msg)
             return
         spinner_name = name or choice(SPINNER_NAMES)
-        cls._spinner = _make_spinner(spinner_name, message, style=style, speed=speed)
+        cls._spinner = _make_spinner(spinner_name, msg, style=style, speed=speed)
         cls._live = Live(cls._spinner, refresh_per_second=20)
         cls._live.start()
+        if msg:
+            Colour.debug("Spinner: %s", msg)
+
+    def _teardown(cls) -> None:
+        """Stop the Live instance and clear singleton state."""
+        if cls._live is not None:
+            try:
+                cls._live.stop()
+            finally:
+                cls._live = None
+                cls._spinner = None
 
     def stop(cls) -> None:
         """Stop the active spinner, unwinding one nesting level.
@@ -541,40 +576,31 @@ class _SpinnerMeta(type):
             cls._depth -= 1
         if cls._depth > 0:
             return
-        if cls._live is not None:
-            try:
-                cls._live.stop()
-            finally:
-                cls._live = None
-                cls._spinner = None
+        cls._teardown()
 
     def terminate(cls) -> None:
-        """Unconditionally tear down the spinner, ignoring nesting depth."""
+        """Unconditionally tear down the spinner, ignoring nesting depth.
+
+        Reserved for error-recovery or top-level cleanup. Do not call from
+        inside a nested context you don't own — outer contexts will no longer
+        have an active spinner on exit.
+        """
         cls._depth = 0
-        if cls._live is not None:
-            try:
-                cls._live.stop()
-            finally:
-                cls._live = None
-                cls._spinner = None
+        cls._teardown()
 
     def text(cls, msg: str) -> None:
         """Set the current spinner text."""
         if cls._spinner is not None:
             cls._spinner.text = msg
+            Colour.debug("Spinner: %s", msg)
 
     def __call__(
         cls, msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0
-    ) -> "_SpinnerMeta":
-        # Stash the args for the __enter__ that follows in a with block, and
-        # return the class itself so ``with Spinner(...) as s`` binds the class.
-        cls._pending = {"message": msg, "name": name, "style": style, "speed": speed}
-        return cls
+    ) -> "_SpinnerContext":
+        return _SpinnerContext(cls, msg=msg, name=name, style=style, speed=speed)
 
     def __enter__(cls) -> "_SpinnerMeta":
-        pending = cls._pending or {}
-        cls._pending = None
-        cls.start(**pending)
+        cls.start()
         return cls
 
     def __exit__(cls, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> bool:

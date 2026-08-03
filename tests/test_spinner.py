@@ -27,12 +27,10 @@ def reset_spinner() -> Generator[None, None, None]:
     Spinner._live = None
     Spinner._spinner = None
     Spinner._depth = 0
-    Spinner._pending = None
     yield
     Spinner._live = None
     Spinner._spinner = None
     Spinner._depth = 0
-    Spinner._pending = None
 
 
 class TestSpinner:
@@ -139,10 +137,24 @@ class TestSpinner:
         assert spinner.interval == _CUSTOM_SPINNERS["xanaduai"]["interval"]
 
     @staticmethod
-    def test_call_returns_class() -> None:
-        """Spinner() returns the class itself (singleton; no instances)."""
-        assert Spinner("x") is Spinner
-        Spinner._pending = None
+    def test_call_returns_context_manager() -> None:
+        """Spinner() returns a per-call context object, not the class itself."""
+        ctx = Spinner("x")
+        assert ctx is not Spinner
+        # The context object enters/exits correctly.
+        with Spinner("msg", name="dots") as s:
+            assert s is Spinner
+            assert Spinner._live is not None
+        assert Spinner._live is None
+
+    @staticmethod
+    def test_stale_pending_does_not_leak() -> None:
+        """Calling Spinner(...) without entering a with block must not affect later bare contexts."""
+        Spinner("orphaned message", name="dots")
+        with Spinner:
+            # Bare context must not pick up the orphaned args.
+            assert Spinner._spinner is not None
+            assert not str(Spinner._spinner.text)
 
 
 class TestSpinnerRegistration:

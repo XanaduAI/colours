@@ -228,7 +228,8 @@ Notes:
 - `Spinner.start(...)` is safe to call repeatedly: if a spinner is already active, calling `start` again updates the spinner text (when a non-empty message is provided) and does not create a second spinner.
 - Starts are reference-counted. Nested `with` blocks (or a `start` issued while a spinner is already running) will not stop the spinner early — only the outermost exit / matching `stop` tears it down. An explicit `Spinner.start(...)` counts as entering a context.
 - Importing `colours` does not mutate Rich's global spinner registry. The hard-to-see `toggle*` spinners are excluded from the random pool and the custom `xanaduai*` spinners are kept in a private registry.
-- `Spinner.text` can be updated at any time while active.
+- `Spinner.text("...")` can be called at any time while active to update the displayed message (write-only).
+- Every `start()` and `text()` call emits a `Colour.debug` log (e.g. `Spinner: Running optimization...`). Set `Colour.set_log_level("DEBUG")` to see the history of spinner messages.
 - `Spinner.stop()` is safe to call even if no spinner is running.
 - `Spinner` is **not** thread-safe. Do not call `start`/`stop` concurrently from multiple threads.
 
@@ -267,8 +268,9 @@ Notes:
 ### Spinner
 
 - `Spinner.start(message: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0)`: Starts a live spinner. Pass `name` to select a specific animation; defaults to a random choice.
-- `Spinner.stop()`: Stops the active spinner (no-op if already stopped).
-- `Spinner.text`: Gets or sets the spinner text while running.
+- `Spinner.stop()`: Stops the active spinner (no-op if already stopped). Unwinding one nesting level.
+- `Spinner.terminate()`: Unconditionally tears down the spinner regardless of nesting depth.
+- `Spinner.text(msg: str)`: Sets the spinner text while running.
 - `with Spinner:`: Context-manager lifecycle for automatic start/stop.
 - `with Spinner("msg", *, name=..., style=..., speed=...):`: Context-manager with initial message and options.
 
