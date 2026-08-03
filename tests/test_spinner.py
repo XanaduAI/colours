@@ -19,7 +19,7 @@ from unittest.mock import Mock, patch
 import pytest
 from rich.spinner import Spinner as RichSpinner
 
-from colours.main import SPINNERS, Spinner
+from colours.main import _CUSTOM_SPINNERS, SPINNER_NAMES, SPINNERS, Spinner  # noqa: PLC2701
 
 
 @pytest.fixture(autouse=True)
@@ -27,9 +27,13 @@ def reset_spinner() -> Generator[None, None, None]:
     """Ensure spinner singleton state does not leak between tests."""
     Spinner._live = None
     Spinner._spinner = None
+    Spinner._depth = 0
+    Spinner._pending = None
     yield
     Spinner._live = None
     Spinner._spinner = None
+    Spinner._depth = 0
+    Spinner._pending = None
 
 
 class TestSpinner:
@@ -70,8 +74,8 @@ class TestSpinner:
         spinner = Mock()
 
         with (
-            patch("colours.main.choice", return_value="xanaduai") as choice_func,
-            patch("colours.main.rich_Spinner", return_value=spinner) as spinner_cls,
+            patch("colours.main.choice", return_value="dots") as choice_func,
+            patch("colours.main._make_spinner", return_value=spinner) as make_spinner,
             patch("colours.main.Live", return_value=live) as live_cls,
         ):
             Spinner.start("loading", style="green", speed=2.0)
@@ -80,7 +84,7 @@ class TestSpinner:
         spinner_names = choice_func.call_args.args[0]
         assert "xanaduai" in spinner_names
         assert all("toggle" not in name for name in spinner_names)
-        spinner_cls.assert_called_once_with("xanaduai", "loading", style="green", speed=2.0)
+        make_spinner.assert_called_once_with("dots", "loading", style="green", speed=2.0)
         live_cls.assert_called_once_with(spinner, refresh_per_second=20)
         live.start.assert_called_once_with()
         assert Spinner._live is live
@@ -132,7 +136,7 @@ class TestSpinner:
         ):
             pass
 
-        start.assert_called_once_with("Initial message...", name="dots", style="green", speed=1.5)
+        start.assert_called_once_with(message="Initial message...", name="dots", style="green", speed=1.5)
         stop.assert_called_once_with()
 
     @staticmethod
@@ -193,17 +197,83 @@ class TestSpinner:
         Spinner.stop()
         assert Spinner._live is None
 
+    @staticmethod
+    def test_context_manager_binds_class_via_as() -> None:
+        """`with Spinner(...) as s` should bind the Spinner class, not None."""
+        with patch.object(Spinner, "start"), patch.object(Spinner, "stop"), Spinner("msg") as s:
+            assert s is Spinner
+
+    @staticmethod
+    def test_bare_context_manager_binds_class_via_as() -> None:
+        """`with Spinner as s` should bind the Spinner class, not None."""
+        with patch.object(Spinner, "start"), patch.object(Spinner, "stop"), Spinner as s:
+            assert s is Spinner
+
+    @staticmethod
+    def test_nested_context_does_not_stop_outer_spinner() -> None:
+        """An inner context must not tear down a spinner started by an outer one."""
+        live = Mock()
+        with patch("colours.main._make_spinner", return_value=Mock()), patch("colours.main.Live", return_value=live):
+            Spinner.start("outer")
+            assert Spinner._depth == 1
+            with Spinner("inner"):
+                assert Spinner._depth == 2
+                assert Spinner._live is live  # reused, not recreated
+            # Inner exit must NOT stop the outer spinner.
+            assert Spinner._depth == 1
+            assert Spinner._live is live
+            live.stop.assert_not_called()
+            Spinner.stop()  # outermost stop tears it down
+            assert Spinner._depth == 0
+            live.stop.assert_called_once_with()
+        assert Spinner._live is None
+
+    @staticmethod
+    def test_stop_when_inactive_does_not_go_negative() -> None:
+        """Extra stop calls must not drive the nesting depth negative."""
+        Spinner.stop()
+        Spinner.stop()
+        assert Spinner._depth == 0
+
+    @staticmethod
+    def test_make_spinner_uses_custom_frames() -> None:
+        """Custom spinners are built from the private registry, not Rich globals."""
+        from colours.main import _CUSTOM_SPINNERS, _make_spinner  # noqa: PLC0415, PLC2701
+
+        spinner = _make_spinner("xanaduai", "hi", style=None, speed=1.0)
+        assert spinner.name == "xanaduai"
+        assert spinner.frames == _CUSTOM_SPINNERS["xanaduai"]["frames"]
+        assert spinner.interval == _CUSTOM_SPINNERS["xanaduai"]["interval"]
+
+    @staticmethod
+    def test_direct_instantiation_is_forbidden() -> None:
+        """Spinner is a singleton; constructing it via () enters a context, never an instance."""
+        # Calling Spinner(...) returns the class (for `with`), not a new instance.
+        assert Spinner("x") is Spinner
+        Spinner._pending = None  # cleanup stashed args
+
 
 class TestSpinnerRegistration:
     """Test custom spinner registration and filtering."""
 
     @staticmethod
     def test_custom_spinners_registered() -> None:
-        """Custom XanaduAI spinners should be present."""
-        assert "xanaduai" in SPINNERS
-        assert "xanaduai_ticker" in SPINNERS
+        """Custom XanaduAI spinners should be present in the library's name list."""
+        assert "xanaduai" in SPINNER_NAMES
+        assert "xanaduai_ticker" in SPINNER_NAMES
+        assert "xanaduai" in _CUSTOM_SPINNERS
+        assert "xanaduai_ticker" in _CUSTOM_SPINNERS
 
     @staticmethod
     def test_toggle_spinners_removed() -> None:
-        """Toggle spinners should be filtered out."""
-        assert all("toggle" not in spinner_name for spinner_name in SPINNERS)
+        """Toggle spinners should be filtered out of the library's name list."""
+        assert all("toggle" not in spinner_name for spinner_name in SPINNER_NAMES)
+
+    @staticmethod
+    def test_rich_global_registry_untouched() -> None:
+        """Importing colours must not mutate Rich's global SPINNERS registry."""
+        # Custom spinners are NOT injected into Rich's global dict.
+        assert "xanaduai" not in SPINNERS
+        assert "xanaduai_ticker" not in SPINNERS
+        # Rich's own toggle spinners are left in place.
+        assert any("toggle" in spinner_name for spinner_name in SPINNERS)

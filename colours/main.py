@@ -37,9 +37,6 @@ except ImportError:  # pragma: no cover
     from rich._spinners import SPINNERS  # noqa: PLC2701
     from rich.spinner import Spinner as rich_Spinner
 
-# Keep an unpatched runtime type handle for isinstance checks.
-_RICH_SPINNER_TYPE = rich_Spinner
-
 width, _ = shutil.get_terminal_size()
 
 
@@ -440,93 +437,110 @@ Color = Colour
 
 
 # region Spinner
-class _SpinnerContext:
-    """Context manager for Spinner(...)-style usage."""
+# Custom XanaduAI spinner definitions. Kept in a private registry so that
+# importing ``colours`` never mutates Rich's global ``SPINNERS`` dict.
+_CUSTOM_SPINNERS: dict[str, dict[str, Any]] = {
+    "xanaduai": {
+        "interval": 120,
+        "frames": [
+            "|XanaduAI    |",
+            "| XanaduAI   |",
+            "|  XanaduAI  |",
+            "|   XanaduAI |",
+            "|    XanaduAI|",
+            "|   XanaduAI |",
+            "|  XanaduAI  |",
+            "| XanaduAI   |",
+        ],
+    },
+    "xanaduai_ticker": {
+        "interval": 100,
+        "frames": [
+            "|XNDU      |",
+            "| XNDU     |",
+            "|  XNDU    |",
+            "|   XNDU   |",
+            "|    XNDU  |",
+            "|     XNDU |",
+            "|      XNDU|",
+            "|U      XND|",
+            "|DU      XN|",
+            "|NDU      X|",
+        ],
+    },
+}
 
-    def __init__(
-        self,
-        spinner_cls: "_SpinnerMeta",
-        message: str = "",
-        *,
-        name: str | None = None,
-        style: str | None = None,
-        speed: float = 1.0,
-    ) -> None:
-        self._spinner_cls = spinner_cls
-        self._message = message
-        self._name = name
-        self._style = style
-        self._speed = speed
+# Names available to this library:
+# - Rich's built-ins (without the hard-to-see "toggle" spinners).
+# - Custom Xanadu spinners.
+SPINNER_NAMES: tuple[str, ...] = tuple(
+    sorted([name for name in SPINNERS if "toggle" not in name] + list(_CUSTOM_SPINNERS)),
+)
 
-    def __enter__(self) -> None:
-        self._spinner_cls.start(self._message, name=self._name, style=self._style, speed=self._speed)
 
-    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> bool:
-        self._spinner_cls.stop()
-        return False
+def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> "rich_Spinner":
+    """Build a Rich Spinner by name, sourcing custom frames without touching Rich globals."""
+    if name in _CUSTOM_SPINNERS:
+        # Construct with any valid built-in name, then override frames/interval
+        # from our private registry. This avoids mutating rich.spinner.SPINNERS.
+        spinner = rich_Spinner("dots", text, style=style, speed=speed)
+        definition = _CUSTOM_SPINNERS[name]
+        spinner.name = name
+        spinner.frames = list(definition["frames"])
+        spinner.interval = definition["interval"]
+        return spinner
+    return rich_Spinner(name, text, style=style, speed=speed)
 
 
 class _SpinnerMeta(type):
+    """Metaclass implementing the class-level singleton spinner.
+
+    All state and behaviour lives here so that ``Spinner`` itself is an empty
+    marker class. This is the single mechanism behind manual use, bare-``with``
+    use, and parametrised-``with`` use.
+    """
+
     _live: "Live | None" = None
     _spinner: "rich_Spinner | None" = None
-
-    def __init__(cls, name: str, bases: tuple[type, ...], namespace: dict[str, Any]) -> None:
-        super().__init__(name, bases, namespace)
-
-        # Remove difficult-to-see toggle spinners and register XanaduAI custom spinners.
-        for spinner_name in tuple(SPINNERS):
-            if "toggle" in spinner_name:
-                SPINNERS.pop(spinner_name, None)
-        SPINNERS["xanaduai"] = {
-            "interval": 120,
-            "frames": [
-                "|XanaduAI    |",
-                "| XanaduAI   |",
-                "|  XanaduAI  |",
-                "|   XanaduAI |",
-                "|    XanaduAI|",
-                "|   XanaduAI |",
-                "|  XanaduAI  |",
-                "| XanaduAI   |",
-            ],
-        }
-        SPINNERS["xanaduai_ticker"] = {
-            "interval": 100,
-            "frames": [
-                "|XNDU      |",
-                "| XNDU     |",
-                "|  XNDU    |",
-                "|   XNDU   |",
-                "|    XNDU  |",
-                "|     XNDU |",
-                "|      XNDU|",
-                "|U      XND|",
-                "|DU      XN|",
-                "|NDU      X|",
-            ],
-        }
+    # Reference count of active start()/context "enters" that own the spinner.
+    _depth: int = 0
+    # Kwargs stashed by __call__ for the __enter__ that follows in a with block.
+    _pending: "dict[str, Any] | None" = None
 
     def start(cls, message: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0) -> None:
-        """Start a live spinner.
+        """Start a live spinner, or nest into the already-active one.
 
-        If a spinner is already active, updates its text (when *message* is
-        non-empty) and returns without creating a second spinner.
+        Every :meth:`start` opens a nesting level; the spinner is only torn
+        down once a matching :meth:`stop` closes the outermost level. If a
+        spinner is already active the existing one is reused and its text is
+        updated when *message* is non-empty; no second spinner is created.
 
         Note:
             This class is **not** thread-safe. Do not call ``start``/``stop``
             concurrently from multiple threads.
 
         """
+        cls._depth += 1
         if cls._live is not None:
             if message and cls._spinner is not None:
                 cls._spinner.text = str(message)
             return
-        spinner_name = name or choice(sorted(SPINNERS.keys()))
-        cls._spinner = rich_Spinner(spinner_name, message, style=style, speed=speed)
+        spinner_name = name or choice(SPINNER_NAMES)
+        cls._spinner = _make_spinner(spinner_name, message, style=style, speed=speed)
         cls._live = Live(cls._spinner, refresh_per_second=20)
         cls._live.start()
 
     def stop(cls) -> None:
+        """Stop the active spinner, unwinding one nesting level.
+
+        Only the :meth:`stop` that balances the first :meth:`start` tears the
+        spinner down; inner calls just decrement the depth. Safe to call when
+        no spinner is active (no-op).
+        """
+        if cls._depth > 0:
+            cls._depth -= 1
+        if cls._depth > 0:
+            return
         if cls._live is not None:
             try:
                 cls._live.stop()
@@ -536,6 +550,7 @@ class _SpinnerMeta(type):
 
     @property
     def text(cls) -> str:
+        """The current spinner text (empty string when no spinner is active)."""
         if cls._spinner is not None:
             return str(cls._spinner.text)
         return ""
@@ -545,18 +560,37 @@ class _SpinnerMeta(type):
         if cls._spinner is not None:
             cls._spinner.text = value
 
-    def __enter__(cls) -> None:
-        cls.start()
+    def __call__(cls, message: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0) -> "type":
+        # Stash the args for the __enter__ that follows in a with block, and
+        # return the class itself so ``with Spinner(...) as s`` binds the class.
+        cls._pending = {"message": message, "name": name, "style": style, "speed": speed}
+        return cls
+
+    def __enter__(cls) -> "type":
+        pending = cls._pending or {}
+        cls._pending = None
+        cls.start(**pending)
+        return cls
 
     def __exit__(cls, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> bool:
         cls.stop()
         return False
 
-    def __call__(
-        cls, message: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0
-    ) -> _SpinnerContext:
-        return _SpinnerContext(cls, message, name=name, style=style, speed=speed)
-
 
 class Spinner(metaclass=_SpinnerMeta):
-    """A class-level singleton spinner backed by Rich Live."""
+    """A class-level singleton spinner backed by Rich Live.
+
+    Three interchangeable usage styles share one live spinner:
+
+    - Manual: ``Spinner.start(...)`` / ``Spinner.stop()``.
+    - Bare context: ``with Spinner: ...``.
+    - Parametrised context: ``with Spinner("msg", name=..., style=..., speed=...) as s: ...``.
+
+    Starts are reference-counted, so nested contexts (or a ``start`` issued
+    while a spinner is already running) will not stop the spinner early — only
+    the outermost exit / matching ``stop`` tears it down.
+
+    Note:
+        This class is **not** thread-safe. Do not drive it concurrently from multiple threads.
+
+    """

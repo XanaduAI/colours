@@ -204,23 +204,30 @@ from colours import Spinner
 with Spinner:
     Spinner.text = "Compiling workflow..."
 
-# Context-manager usage with initial text and options.
-with Spinner("Initial message...", style="green", speed=1.2):
+# Context-manager usage with initial text.
+with Spinner("Initial message..."):
     Spinner.text = "Running optimization..."
 
-# Use a specific spinner by name (default is random each time).
-with Spinner("Submitting...", name="dots"):
+# Use a specific spinner by name (default is random each time) and options.
+with Spinner("Submitting...", name="dots", style="green", speed=1.2):
     Spinner.text = "Running optimization..."
 
 # Manual lifecycle usage.
 Spinner.start("Submitting task...")
 Spinner.text = "Running optimization..."
 Spinner.stop()
+
+# You can also bind the class inside a context via `as`:
+
+with Spinner("Initial message...") as s:
+    s.text = "Running optimization..."  # `s` is the Spinner class
 ```
 
 Notes:
-- By default a random spinner animation is chosen each time `start()` is called. Pass `name="dots"` (or any key from Rich's spinner registry) for a deterministic choice.
+- By default a random spinner animation is chosen each time `start()` is called. Pass `name="dots"` (or any key from Rich's spinner registry, plus the custom `"xanaduai"` / `"xanaduai_ticker"`) for a deterministic choice.
 - `Spinner.start(...)` is safe to call repeatedly: if a spinner is already active, calling `start` again updates the spinner text (when a non-empty message is provided) and does not create a second spinner.
+- Starts are reference-counted. Nested `with` blocks (or a `start` issued while a spinner is already running) will not stop the spinner early — only the outermost exit / matching `stop` tears it down. An explicit `Spinner.start(...)` counts as entering a context.
+- Importing `colours` does not mutate Rich's global spinner registry. The hard-to-see `toggle*` spinners are excluded from the random pool and the custom `xanaduai*` spinners are kept in a private registry.
 - `Spinner.text` can be updated at any time while active.
 - `Spinner.stop()` is safe to call even if no spinner is running.
 - `Spinner` is **not** thread-safe. Do not call `start`/`stop` concurrently from multiple threads.
