@@ -201,26 +201,26 @@ export XANADU_COLOURS_SPLIT=ERROR
 from colours import Spinner
 
 # Context-manager usage (automatically starts and stops).
-with Spinner:
-    Spinner.text = "Compiling workflow..."
+with Spinner("Compiling workflow..."):
+    pass
 
 # Context-manager usage with initial text.
 with Spinner("Initial message..."):
-    Spinner.text = "Running optimization..."
+    Spinner.text("Running optimization...")
 
 # Use a specific spinner by name (default is random each time) and options.
 with Spinner("Submitting...", name="dots", style="green", speed=1.2):
-    Spinner.text = "Running optimization..."
+    Spinner.text("Running optimization...")
 
 # Manual lifecycle usage.
 Spinner.start("Submitting task...")
-Spinner.text = "Running optimization..."
+Spinner.text("Running optimization...")
 Spinner.stop()
 
 # You can also bind the class inside a context via `as`:
 
 with Spinner("Initial message...") as s:
-    s.text = "Running optimization..."  # `s` is the Spinner class
+    s.text("Running optimization...")  # `s` is the Spinner class
 ```
 
 Notes:

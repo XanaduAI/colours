@@ -65,7 +65,7 @@ class TestSpinner:
 
         spinner_cls.assert_not_called()
         live_cls.assert_not_called()
-        assert Spinner.text == "Task B"
+        assert str(Spinner._spinner.text) == "Task B"
 
     @staticmethod
     def test_start_creates_spinner_and_live() -> None:
@@ -94,28 +94,18 @@ class TestSpinner:
         """Stop should stop the live instance and clear singleton state."""
         live = Mock()
         Spinner._live = live
-
         Spinner.stop()
-
         live.stop.assert_called_once_with()
         assert Spinner._live is None
 
     @staticmethod
-    def test_text_property_getter_and_setter() -> None:
-        """The text property should proxy to the underlying Rich spinner."""
-        renderable = RichSpinner("dots", "hello")
-        live = Mock()
-        Spinner._live = live
-        Spinner._spinner = renderable
-
-        assert Spinner.text == "hello"
-        Spinner.text = "updated"
-        assert Spinner.text == "updated"
-
-    @staticmethod
-    def test_text_returns_empty_if_spinner_inactive() -> None:
-        """The text property should be an empty string when no spinner is active."""
-        assert not Spinner.text
+    def test_text_method_sets_spinner_text() -> None:
+        """Spinner.text() should update the underlying Rich spinner text."""
+        Spinner.start("initial message")
+        Spinner.text("updated")
+        assert Spinner._spinner is not None
+        assert str(Spinner._spinner.text) == "updated"
+        Spinner.stop()
 
     @staticmethod
     def test_context_manager_starts_and_stops() -> None:
@@ -193,7 +183,8 @@ class TestSpinner:
         """Integration test: actually start and stop a spinner without mocks."""
         Spinner.start("smoke test", name="dots")
         assert Spinner._live is not None
-        assert Spinner.text == "smoke test"
+        assert Spinner._spinner is not None
+        assert str(Spinner._spinner.text) == "smoke test"
         Spinner.stop()
         assert Spinner._live is None
 

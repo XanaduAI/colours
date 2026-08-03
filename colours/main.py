@@ -548,25 +548,20 @@ class _SpinnerMeta(type):
                 cls._live = None
                 cls._spinner = None
 
-    @property
-    def text(cls) -> str:
-        """The current spinner text (empty string when no spinner is active)."""
+    def text(cls, msg: str) -> None:
+        """Set the current spinner text."""
         if cls._spinner is not None:
-            return str(cls._spinner.text)
-        return ""
+            cls._spinner.text = msg
 
-    @text.setter
-    def text(cls, value: str) -> None:
-        if cls._spinner is not None:
-            cls._spinner.text = value
-
-    def __call__(cls, message: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0) -> "type":
+    def __call__(
+        cls, msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0
+    ) -> "_SpinnerMeta":
         # Stash the args for the __enter__ that follows in a with block, and
         # return the class itself so ``with Spinner(...) as s`` binds the class.
-        cls._pending = {"message": message, "name": name, "style": style, "speed": speed}
+        cls._pending = {"message": msg, "name": name, "style": style, "speed": speed}
         return cls
 
-    def __enter__(cls) -> "type":
+    def __enter__(cls) -> "_SpinnerMeta":
         pending = cls._pending or {}
         cls._pending = None
         cls.start(**pending)
