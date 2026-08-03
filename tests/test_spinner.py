@@ -156,6 +156,22 @@ class TestSpinner:
             assert Spinner._spinner is not None
             assert not str(Spinner._spinner.text)
 
+    @staticmethod
+    @pytest.mark.parametrize("speed", [0, -1, -0.001])
+    def test_make_spinner_rejects_non_positive_speed(speed: float) -> None:
+        """_make_spinner raises ValueError for zero or negative speed."""
+        with pytest.raises(ValueError, match="speed must be positive"):
+            _make_spinner("dots", "hi", style=None, speed=speed)
+
+    @staticmethod
+    def test_start_rollback_on_failure() -> None:
+        """start() rolls back _depth and clears state if _make_spinner raises."""
+        with pytest.raises(ValueError, match="speed must be positive"):
+            Spinner.start("fail", name="dots", speed=0)
+        assert Spinner._depth == 0
+        assert Spinner._live is None
+        assert Spinner._spinner is None
+
 
 class TestSpinnerRegistration:
     """Test custom spinner registration and filtering."""

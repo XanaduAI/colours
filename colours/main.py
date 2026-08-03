@@ -484,6 +484,9 @@ SPINNER_NAMES: tuple[str, ...] = tuple(
 
 def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> "rich_Spinner":
     """Build a Rich Spinner by name, sourcing custom frames without touching Rich globals."""
+    if speed <= 0:
+        msg = f"speed must be positive, got {speed}"
+        raise ValueError(msg)
     if name in _CUSTOM_SPINNERS:
         # Construct with any valid built-in name, then override frames/interval
         # from our private registry. This avoids mutating rich.spinner.SPINNERS.
@@ -491,7 +494,7 @@ def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> "
         definition = _CUSTOM_SPINNERS[name]
         spinner.name = name
         spinner.frames = list(definition["frames"])
-        spinner.interval = definition["interval"]
+        spinner.interval = definition["interval"] / speed
         return spinner
     return rich_Spinner(name, text, style=style, speed=speed)
 
@@ -531,9 +534,14 @@ class _SpinnerMeta(type):
                 Colour.debug("Spinner: %s", msg)
             return
         spinner_name = name or choice(SPINNER_NAMES)
-        cls._spinner = _make_spinner(spinner_name, msg, style=style, speed=speed)
-        cls._live = Live(cls._spinner, refresh_per_second=20)
-        cls._live.start()
+        try:
+            cls._spinner = _make_spinner(spinner_name, msg, style=style, speed=speed)
+            cls._live = Live(cls._spinner, refresh_per_second=20)
+            cls._live.start()
+        except BaseException:
+            cls._depth -= 1
+            cls._teardown()
+            raise
         if msg:
             Colour.debug("Spinner: %s", msg)
 
