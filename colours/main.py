@@ -497,10 +497,7 @@ def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> "
 
 
 class _SpinnerContext:
-    """Per-call context object for parametrised ``with Spinner(...)`` blocks.
-
-    Carries its own args so that no shared state is stashed on the class.
-    """
+    """Per-call context object for parametrised ``with Spinner(...)`` blocks."""
 
     __slots__ = ("_cls", "_kwargs")
 
@@ -518,12 +515,7 @@ class _SpinnerContext:
 
 
 class _SpinnerMeta(type):
-    """Metaclass implementing the class-level singleton spinner.
-
-    All state and behaviour lives here so that ``Spinner`` itself is an empty
-    marker class. This is the single mechanism behind manual use, bare-``with``
-    use, and parametrised-``with`` use.
-    """
+    """Metaclass implementing the class-level singleton spinner."""
 
     _live: "Live | None" = None
     _spinner: "rich_Spinner | None" = None
@@ -531,18 +523,7 @@ class _SpinnerMeta(type):
     _depth: int = 0
 
     def start(cls, msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0) -> None:
-        """Start a live spinner, or nest into the already-active one.
-
-        Every :meth:`start` opens a nesting level; the spinner is only torn
-        down once a matching :meth:`stop` closes the outermost level. If a
-        spinner is already active the existing one is reused and its text is
-        updated when *msg* is non-empty; no second spinner is created.
-
-        Note:
-            This class is **not** thread-safe. Do not call ``start``/``stop``
-            concurrently from multiple threads.
-
-        """
+        """Start or nest into the active spinner. Reuses existing if already running."""
         cls._depth += 1
         if cls._live is not None:
             if msg and cls._spinner is not None:
@@ -566,12 +547,7 @@ class _SpinnerMeta(type):
                 cls._spinner = None
 
     def stop(cls) -> None:
-        """Stop the active spinner, unwinding one nesting level.
-
-        Only the :meth:`stop` that balances the first :meth:`start` tears the
-        spinner down; inner calls just decrement the depth. Safe to call when
-        no spinner is active (no-op).
-        """
+        """Unwind one nesting level; tears down only at the outermost stop."""
         if cls._depth > 0:
             cls._depth -= 1
         if cls._depth > 0:
@@ -579,12 +555,7 @@ class _SpinnerMeta(type):
         cls._teardown()
 
     def terminate(cls) -> None:
-        """Unconditionally tear down the spinner, ignoring nesting depth.
-
-        Reserved for error-recovery or top-level cleanup. Do not call from
-        inside a nested context you don't own — outer contexts will no longer
-        have an active spinner on exit.
-        """
+        """Force-stop the spinner regardless of nesting depth."""
         cls._depth = 0
         cls._teardown()
 
@@ -609,19 +580,8 @@ class _SpinnerMeta(type):
 
 
 class Spinner(metaclass=_SpinnerMeta):
-    """A class-level singleton spinner backed by Rich Live.
+    """Class-level singleton spinner backed by Rich Live.
 
-    Three interchangeable usage styles share one live spinner:
-
-    - Manual: ``Spinner.start(...)`` / ``Spinner.stop()``.
-    - Bare context: ``with Spinner: ...``.
-    - Parametrised context: ``with Spinner("msg", name=..., style=..., speed=...) as s: ...``.
-
-    Starts are reference-counted, so nested contexts (or a ``start`` issued
-    while a spinner is already running) will not stop the spinner early — only
-    the outermost exit / matching ``stop`` tears it down.
-
-    Note:
-        This class is **not** thread-safe. Do not drive it concurrently from multiple threads.
-
+    Usage: ``Spinner.start()``/``.stop()``, ``with Spinner:``, or ``with Spinner("msg"):``.
+    Starts are reference-counted; only the outermost stop tears it down. Not thread-safe.
     """
