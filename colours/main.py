@@ -548,6 +548,16 @@ class _SpinnerMeta(type):
                 cls._live = None
                 cls._spinner = None
 
+    def terminate(cls) -> None:
+        """Unconditionally tear down the spinner, ignoring nesting depth."""
+        cls._depth = 0
+        if cls._live is not None:
+            try:
+                cls._live.stop()
+            finally:
+                cls._live = None
+                cls._spinner = None
+
     def text(cls, msg: str) -> None:
         """Set the current spinner text."""
         if cls._spinner is not None:
