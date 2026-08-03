@@ -22,15 +22,25 @@ from collections.abc import Callable
 from contextlib import suppress
 from enum import Enum
 from functools import wraps
+from random import choice
 from typing import Any, overload
 
 from rich import print as rich_print
 from rich.console import Console
+from rich.live import Live
 from rich.logging import RichHandler
+
+try:
+    from rich.spinner import SPINNERS
+    from rich.spinner import Spinner as rich_Spinner
+except ImportError:  # pragma: no cover
+    from rich._spinners import SPINNERS  # noqa: PLC2701
+    from rich.spinner import Spinner as rich_Spinner
 
 width, _ = shutil.get_terminal_size()
 
 
+# region ColourHandler
 class ColourHandler(RichHandler):
     """A custom instance of the RichHandler class."""
 
@@ -154,6 +164,7 @@ LOGGER.propagate = False
 attach_split_handlers(LOGGER, XANADU_COLOURS_LEVEL, XANADU_COLOURS_SPLIT)
 
 
+# region Colour Descriptors
 class _PrintDescriptor:
     """Descriptor to handle both static and instance print methods.
 
@@ -262,6 +273,7 @@ class _VersatileLogDescriptor:
         return log
 
 
+# region Colour Enum
 class Colour(Enum):
     """Wrap, print, or, log text using Rich colours."""
 
@@ -386,7 +398,11 @@ class Colour(Enum):
             using the `xanadu.colours` logger. This is a global setting.
 
         """
-        LOGGER.setLevel(_parse_log_level(level) if isinstance(level, str) else level)
+        parsed = _parse_log_level(level) if isinstance(level, str) else level
+        LOGGER.setLevel(parsed)
+        for h in LOGGER.handlers:
+            if isinstance(h, ColourHandler) and not h.console.stderr and h.level > parsed:
+                h.setLevel(parsed)
 
     @staticmethod
     def modify_log_format(
@@ -422,3 +438,158 @@ class Colour(Enum):
 
 # American English alias
 Color = Colour
+
+
+# region Spinner
+# Custom XanaduAI spinner definitions. Kept in a private registry so that
+# importing ``colours`` never mutates Rich's global ``SPINNERS`` dict.
+_CUSTOM_SPINNERS: dict[str, dict[str, Any]] = {
+    "xanaduai": {
+        "interval": 120,
+        "frames": [
+            "|XanaduAI    |",
+            "| XanaduAI   |",
+            "|  XanaduAI  |",
+            "|   XanaduAI |",
+            "|    XanaduAI|",
+            "|   XanaduAI |",
+            "|  XanaduAI  |",
+            "| XanaduAI   |",
+        ],
+    },
+    "xanaduai_ticker": {
+        "interval": 100,
+        "frames": [
+            "|XNDU      |",
+            "| XNDU     |",
+            "|  XNDU    |",
+            "|   XNDU   |",
+            "|    XNDU  |",
+            "|     XNDU |",
+            "|      XNDU|",
+            "|U      XND|",
+            "|DU      XN|",
+            "|NDU      X|",
+        ],
+    },
+}
+
+# Names available to this library:
+# - Rich's built-ins (without the hard-to-see "toggle" spinners).
+# - Custom Xanadu spinners.
+SPINNER_NAMES: tuple[str, ...] = tuple(
+    sorted([name for name in SPINNERS if "toggle" not in name] + list(_CUSTOM_SPINNERS)),
+)
+
+
+def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> "rich_Spinner":
+    """Build a Rich Spinner by name, sourcing custom frames without touching Rich globals."""
+    if speed <= 0:
+        msg = f"speed must be positive, got {speed}"
+        raise ValueError(msg)
+    if name in _CUSTOM_SPINNERS:
+        # Construct with any valid built-in name, then override frames/interval
+        # from our private registry. This avoids mutating rich.spinner.SPINNERS.
+        spinner = rich_Spinner("dots", text, style=style, speed=speed)
+        definition = _CUSTOM_SPINNERS[name]
+        spinner.name = name
+        spinner.frames = list(definition["frames"])
+        spinner.interval = definition["interval"] / speed
+        return spinner
+    return rich_Spinner(name, text, style=style, speed=speed)
+
+
+class _SpinnerContext:
+    """Per-call context object for parametrised ``with Spinner(...)`` blocks."""
+
+    __slots__ = ("_cls", "_kwargs")
+
+    def __init__(self, cls: "_SpinnerMeta", **kwargs: Any) -> None:
+        self._cls = cls
+        self._kwargs = kwargs
+
+    def __enter__(self) -> "_SpinnerMeta":
+        self._cls.start(**self._kwargs)
+        return self._cls
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+        self._cls.stop()
+        return False
+
+
+class _SpinnerMeta(type):
+    """Metaclass implementing the class-level singleton spinner."""
+
+    _live: "Live | None" = None
+    _spinner: "rich_Spinner | None" = None
+    # Reference count of active start()/context "enters" that own the spinner.
+    _depth: int = 0
+
+    def start(cls, msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0) -> None:
+        """Start or nest into the active spinner. Reuses existing if already running."""
+        cls._depth += 1
+        if cls._live is not None:
+            if msg and cls._spinner is not None:
+                cls._spinner.text = str(msg)
+                Colour.debug("Spinner: %s", msg)
+            return
+        spinner_name = name or choice(SPINNER_NAMES)
+        try:
+            cls._spinner = _make_spinner(spinner_name, msg, style=style, speed=speed)
+            cls._live = Live(cls._spinner, refresh_per_second=20)
+            cls._live.start()
+        except BaseException:
+            cls._depth -= 1
+            cls._teardown()
+            raise
+        if msg:
+            Colour.debug("Spinner: %s", msg)
+
+    def _teardown(cls) -> None:
+        """Stop the Live instance and clear singleton state."""
+        if cls._live is not None:
+            try:
+                cls._live.stop()
+            finally:
+                cls._live = None
+                cls._spinner = None
+
+    def stop(cls) -> None:
+        """Unwind one nesting level; tears down only at the outermost stop."""
+        if cls._depth > 0:
+            cls._depth -= 1
+        if cls._depth > 0:
+            return
+        cls._teardown()
+
+    def terminate(cls) -> None:
+        """Force-stop the spinner regardless of nesting depth."""
+        cls._depth = 0
+        cls._teardown()
+
+    def text(cls, msg: str) -> None:
+        """Set the current spinner text."""
+        if cls._spinner is not None:
+            cls._spinner.text = msg
+            Colour.debug("Spinner: %s", msg)
+
+    def __call__(
+        cls, msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0
+    ) -> "_SpinnerContext":
+        return _SpinnerContext(cls, msg=msg, name=name, style=style, speed=speed)
+
+    def __enter__(cls) -> "_SpinnerMeta":
+        cls.start()
+        return cls
+
+    def __exit__(cls, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+        cls.stop()
+        return False
+
+
+class Spinner(metaclass=_SpinnerMeta):
+    """Class-level singleton spinner backed by Rich Live.
+
+    Usage: ``Spinner.start()``/``.stop()``, ``with Spinner:``, or ``with Spinner("msg"):``.
+    Starts are reference-counted; only the outermost stop tears it down. Not thread-safe.
+    """
