@@ -15,6 +15,8 @@
 
 import atexit
 import logging
+import re
+import sys
 from collections.abc import Generator
 from unittest.mock import Mock
 
@@ -29,6 +31,7 @@ from colours.main import (
     SPINNERS,
     ColourHandler,
     Spinner,
+    _exiting_from_unhandled_exception,  # noqa: PLC2701
     _make_spinner,  # noqa: PLC2701
     _spinner_console,  # noqa: PLC2701
     _terminate_spinner_at_exit,  # noqa: PLC2701
@@ -382,6 +385,260 @@ class TestSpinnerStderrHook:
         finally:
             Spinner.terminate()
             LOGGER.handlers = original
+
+
+class TestSpinnerPersistence:
+    """Test the ``✔`` scrollback trail emitted at DEBUG level."""
+
+    @staticmethod
+    @pytest.fixture
+    def persisted() -> Generator[list[tuple[str, str]], None, None]:
+        """Capture ``(levelname, message)`` pairs emitted to the colours logger.
+
+        ``Colour.error`` wraps its message in colour markup while ``Colour.debug`` does
+        not, so the full-message wrapper is unwrapped to keep assertions readable.
+        """
+        wrapper = re.compile(r"^\[(?P<tag>[a-z0-9_]+)\](?P<body>.*)\[/(?P=tag)\]$", re.DOTALL)
+        records: list[tuple[str, str]] = []
+
+        class _Capture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                message = record.getMessage()
+                match = wrapper.match(message)
+                records.append((record.levelname, match["body"] if match else message))
+
+        handler = _Capture(level=logging.DEBUG)
+        original_level = LOGGER.level
+        LOGGER.setLevel(logging.DEBUG)
+        LOGGER.addHandler(handler)
+        try:
+            yield records
+        finally:
+            LOGGER.removeHandler(handler)
+            LOGGER.setLevel(original_level)
+
+    @staticmethod
+    def test_text_persists_outgoing_message(persisted: list[tuple[str, str]]) -> None:
+        """Changing the text persists the message that just completed, not the new one."""
+        Spinner.start("first", name="dots")
+        Spinner.text("second")
+        assert persisted == [("DEBUG", "✔ first")]
+        assert Spinner._spinner is not None
+        assert str(Spinner._spinner.text) == "second"
+        Spinner.terminate()
+
+    @staticmethod
+    def test_stop_persists_final_message(persisted: list[tuple[str, str]]) -> None:
+        """The trailing message is persisted when the spinner stops normally."""
+        Spinner.start("only", name="dots")
+        Spinner.stop()
+        assert persisted == [("DEBUG", "✔ only")]
+
+    @staticmethod
+    def test_full_sequence_persists_each_message_once(persisted: list[tuple[str, str]]) -> None:
+        """A start/text/text/stop cycle leaves one tick per message, in order."""
+        Spinner.start("one", name="dots")
+        Spinner.text("two")
+        Spinner.text("three")
+        Spinner.stop()
+        assert persisted == [("DEBUG", "✔ one"), ("DEBUG", "✔ two"), ("DEBUG", "✔ three")]
+
+    @staticmethod
+    def test_blank_messages_are_not_persisted(persisted: list[tuple[str, str]]) -> None:
+        """A spinner with no message must not emit a bare tick."""
+        Spinner.start(name="dots")
+        Spinner.stop()
+        assert persisted == []
+
+    @staticmethod
+    def test_terminate_does_not_persist(persisted: list[tuple[str, str]]) -> None:
+        """Forced teardown must not claim success for unfinished work."""
+        Spinner.start("interrupted", name="dots")
+        Spinner.terminate()
+        assert persisted == []
+
+    @staticmethod
+    def test_atexit_persists_on_a_clean_exit(persisted: list[tuple[str, str]]) -> None:
+        """Forgetting to call stop() must not silently drop the trailing message."""
+        Spinner.start("never stopped", name="dots")
+        _terminate_spinner_at_exit()
+        assert persisted == [("DEBUG", "✔ never stopped")]
+
+    @staticmethod
+    def test_atexit_reports_failure_after_a_traceback(
+        persisted: list[tuple[str, str]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Exiting via an unhandled exception reports ✖ at ERROR, never a success tick."""
+        monkeypatch.setattr(sys, "last_exc", RuntimeError("boom"), raising=False)
+        monkeypatch.setattr(sys, "last_value", RuntimeError("boom"), raising=False)
+        Spinner.start("crashed", name="dots")
+        _terminate_spinner_at_exit()
+        assert persisted == [("ERROR", "✖ crashed")]
+
+    @staticmethod
+    @pytest.mark.parametrize("attr", ["last_exc", "last_value"])
+    def test_unhandled_exception_detected_via_either_sys_attribute(
+        attr: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """sys.last_exc is 3.12+; sys.last_value covers 3.11."""
+        monkeypatch.delattr(sys, "last_exc", raising=False)
+        monkeypatch.delattr(sys, "last_value", raising=False)
+        assert _exiting_from_unhandled_exception() is False
+        monkeypatch.setattr(sys, attr, RuntimeError("boom"), raising=False)
+        assert _exiting_from_unhandled_exception() is True
+
+    @staticmethod
+    def test_terminate_does_not_persist_by_default(persisted: list[tuple[str, str]]) -> None:
+        """An explicit terminate() means abandoned work, not completed work."""
+        Spinner.start("interrupted", name="dots")
+        Spinner.terminate()
+        assert persisted == []
+
+    @staticmethod
+    def test_failed_start_does_not_persist(persisted: list[tuple[str, str]]) -> None:
+        """A spinner that never rendered has nothing to mark complete."""
+        with pytest.raises(ValueError, match="speed must be positive"):
+            Spinner.start("doomed", name="dots", speed=0)
+        assert persisted == []
+
+    @staticmethod
+    def test_start_reuse_persists_like_text(persisted: list[tuple[str, str]]) -> None:
+        """start() on an active spinner is documented as equivalent to text()."""
+        Spinner.start("first", name="dots")
+        Spinner.start("second")
+        assert persisted == [("DEBUG", "✔ first")]
+        assert Spinner._spinner is not None
+        assert str(Spinner._spinner.text) == "second"
+        Spinner.terminate()
+
+    @staticmethod
+    def test_markup_is_reduced_to_plain_text(persisted: list[tuple[str, str]]) -> None:
+        """Message content must not be able to inject styles into the log record."""
+        Spinner.start("[bold]styled[/bold]", name="dots")
+        Spinner.text("[red]next[/red]")
+        Spinner.stop()
+        assert persisted == [("DEBUG", "✔ styled"), ("DEBUG", "✔ next")]
+
+    @staticmethod
+    def test_text_on_inactive_spinner_is_a_noop(persisted: list[tuple[str, str]]) -> None:
+        """Setting text with no spinner running does nothing and persists nothing."""
+        Spinner.text("ignored")
+        assert persisted == []
+        assert Spinner._spinner is None
+
+    @staticmethod
+    def test_live_is_transient() -> None:
+        """Live must be transient so stop() erases the frame the tick replaces."""
+        Spinner.start("working", name="dots")
+        try:
+            assert Spinner._live is not None
+            assert Spinner._live.transient is True
+        finally:
+            Spinner.terminate()
+
+
+class TestSpinnerFailure:
+    """Test the ``✖`` failure marker emitted when an exception ends a spinner."""
+
+    @staticmethod
+    @pytest.fixture
+    def persisted() -> Generator[list[tuple[str, str]], None, None]:
+        """Capture ``(levelname, message)`` pairs emitted to the colours logger."""
+        wrapper = re.compile(r"^\[(?P<tag>[a-z0-9_]+)\](?P<body>.*)\[/(?P=tag)\]$", re.DOTALL)
+        records: list[tuple[str, str]] = []
+
+        class _Capture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                message = record.getMessage()
+                match = wrapper.match(message)
+                records.append((record.levelname, match["body"] if match else message))
+
+        handler = _Capture(level=logging.DEBUG)
+        original_level = LOGGER.level
+        LOGGER.setLevel(logging.DEBUG)
+        LOGGER.addHandler(handler)
+        try:
+            yield records
+        finally:
+            LOGGER.removeHandler(handler)
+            LOGGER.setLevel(original_level)
+
+    @staticmethod
+    def test_context_manager_reports_failure(persisted: list[tuple[str, str]]) -> None:
+        """An exception inside `with Spinner(...)` marks the message failed."""
+        msg = "exploded"
+        with pytest.raises(ValueError, match=msg), Spinner("Submitting...", name="dots"):
+            raise ValueError(msg)
+        assert persisted == [("ERROR", "✖ Submitting...")]
+        assert Spinner._live is None
+        assert Spinner._depth == 0
+
+    @staticmethod
+    def test_bare_context_manager_reports_failure(persisted: list[tuple[str, str]]) -> None:
+        """The bare `with Spinner:` form reports failure too."""
+        msg = "exploded"
+
+        def _boom() -> None:
+            Spinner.text("Working...")
+            raise ValueError(msg)
+
+        with pytest.raises(ValueError, match=msg), Spinner:
+            _boom()
+        assert persisted == [("ERROR", "✖ Working...")]
+        assert Spinner._live is None
+
+    @staticmethod
+    def test_failure_is_error_level_not_debug(persisted: list[tuple[str, str]]) -> None:
+        """✖ must be visible without enabling DEBUG; ✔ must not."""
+        Spinner.start("ok", name="dots")
+        Spinner.stop()
+        Spinner.start("bad", name="dots")
+        Spinner.fail()
+        assert persisted == [("DEBUG", "✔ ok"), ("ERROR", "✖ bad")]
+
+    @staticmethod
+    def test_nested_failure_reports_innermost_message_once(persisted: list[tuple[str, str]]) -> None:
+        """An exception unwinds every level but reports a single ✖."""
+        msg = "exploded"
+        with pytest.raises(ValueError, match=msg), Spinner("outer", name="dots"), Spinner("inner"):
+            raise ValueError(msg)
+        assert persisted == [("DEBUG", "✔ outer"), ("ERROR", "✖ inner")]
+        assert Spinner._depth == 0
+        assert Spinner._live is None
+
+    @staticmethod
+    def test_successful_context_still_reports_success(persisted: list[tuple[str, str]]) -> None:
+        """A clean `with` block is unaffected by the failure path."""
+        with Spinner("Submitting...", name="dots"):
+            pass
+        assert persisted == [("DEBUG", "✔ Submitting...")]
+
+    @staticmethod
+    def test_fail_resets_nesting_depth() -> None:
+        """fail() tears down regardless of depth, like terminate()."""
+        Spinner.start("one", name="dots")
+        Spinner.start("two")
+        assert Spinner._depth == 2
+        Spinner.fail()
+        assert Spinner._depth == 0
+        assert Spinner._live is None
+
+    @staticmethod
+    def test_fail_is_safe_when_no_spinner_is_running(persisted: list[tuple[str, str]]) -> None:
+        """fail() on an inactive spinner is a no-op."""
+        Spinner.fail()
+        assert persisted == []
+        assert Spinner._live is None
+
+    @staticmethod
+    def test_blank_message_is_not_reported_as_failed(persisted: list[tuple[str, str]]) -> None:
+        """A spinner with no message must not emit a bare ✖."""
+        msg = "exploded"
+        with pytest.raises(ValueError, match=msg), Spinner(name="dots"):
+            raise ValueError(msg)
+        assert persisted == []
 
 
 class TestSpinnerRegistration:

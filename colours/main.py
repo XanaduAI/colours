@@ -13,23 +13,31 @@
 # limitations under the License.
 """Simplified colours for Python terminal applications."""
 
+from __future__ import annotations
+
 import atexit
 import logging
 import operator
 import os
 import re
 import shutil
-from collections.abc import Callable
+import sys
 from contextlib import suppress
 from enum import Enum
 from functools import wraps
 from random import choice
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, overload
 
 from rich import print as rich_print
 from rich.console import Console
 from rich.live import Live
 from rich.logging import RichHandler
+from rich.text import Text
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from rich.console import RenderableType
 
 try:
     from rich.spinner import SPINNERS
@@ -175,12 +183,12 @@ class _PrintDescriptor:
     """
 
     @overload
-    def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
+    def __get__(self, instance: None, owner: type[Colour]) -> Callable[..., None]: ...
 
     @overload
-    def __get__(self, instance: "Colour", owner: type["Colour"]) -> Callable[..., None]: ...
+    def __get__(self, instance: Colour, owner: type[Colour]) -> Callable[..., None]: ...
 
-    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
+    def __get__(self, instance: Colour | None, owner: type[Colour]) -> Callable[..., None]:
         """Return appropriate print function based on access context."""
         if instance is None:
             return rich_print
@@ -200,12 +208,12 @@ class _PredefinedLogDescriptor:
         self.loglevel: int = _parse_log_level(level)
 
     @overload
-    def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
+    def __get__(self, instance: None, owner: type[Colour]) -> Callable[..., None]: ...
 
     @overload
-    def __get__(self, instance: "Colour", owner: type["Colour"]) -> Callable[..., None]: ...
+    def __get__(self, instance: Colour, owner: type[Colour]) -> Callable[..., None]: ...
 
-    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
+    def __get__(self, instance: Colour | None, owner: type[Colour]) -> Callable[..., None]:
         """Return appropriate log function based on access context."""
         log_method = getattr(LOGGER, self.level)
         if instance is None:
@@ -228,7 +236,7 @@ class _PredefinedLogDescriptor:
 class _LoggerDescriptor:
     """Descriptor that returns the underlying LOGGER directly, bypassing enum member wrapping."""
 
-    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> logging.Logger:
+    def __get__(self, instance: Colour | None, owner: type[Colour]) -> logging.Logger:
         """Return the module-level LOGGER regardless of access context."""
         return LOGGER
 
@@ -237,12 +245,12 @@ class _VersatileLogDescriptor:
     """Descriptor for versatile log method that takes level as first argument."""
 
     @overload
-    def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
+    def __get__(self, instance: None, owner: type[Colour]) -> Callable[..., None]: ...
 
     @overload
-    def __get__(self, instance: "Colour", owner: type["Colour"]) -> Callable[..., None]: ...
+    def __get__(self, instance: Colour, owner: type[Colour]) -> Callable[..., None]: ...
 
-    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
+    def __get__(self, instance: Colour | None, owner: type[Colour]) -> Callable[..., None]:
         """Return appropriate log function based on access context."""
         if instance is None:
 
@@ -505,7 +513,7 @@ def _spinner_console() -> Console:
     return Console()
 
 
-def _secondary_consoles(live: "Live") -> tuple[Console, ...]:
+def _secondary_consoles(live: Live) -> tuple[Console, ...]:
     """Return consoles that need the spinner's live-render hook pushed onto them.
 
     ``Live`` installs its render hook on its own console only. Records routed to the
@@ -534,7 +542,32 @@ def _secondary_consoles(live: "Live") -> tuple[Console, ...]:
     return tuple(consoles)
 
 
-def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> "rich_Spinner":
+def _persist_message(text: RenderableType, *, failed: bool = False) -> None:
+    """Persist a finished spinner message to the scrollback.
+
+    A completed message is recorded as ``✔`` via :meth:`Colour.debug`, so the trail only
+    appears at ``DEBUG``. A failed one is recorded as ``✖`` via :meth:`Colour.error`, so
+    it is visible by default. The message is reduced to its plain form first: spinner
+    text may be a styled :class:`~rich.text.Text`, and feeding markup back through the
+    handler would re-parse it and let message content inject styles into the log line.
+
+    Args:
+        text: The spinner message. Rich declares ``Spinner.text`` as any renderable, so
+            :class:`~rich.text.Text` is reduced to its plain form and anything else is
+            stringified. Blank messages are skipped.
+        failed: Whether the spinner ended because of an exception.
+
+    """
+    plain = text.plain if isinstance(text, Text) else str(text)
+    if not plain:
+        return
+    if failed:
+        Colour.error("✖ %s", plain)
+    else:
+        Colour.green.debug("✔ %s", plain)
+
+
+def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> rich_Spinner:
     """Build a Rich Spinner by name, sourcing custom frames without touching Rich globals."""
     if speed <= 0:
         msg = f"speed must be positive, got {speed}"
@@ -556,24 +589,27 @@ class _SpinnerContext:
 
     __slots__ = ("_cls", "_kwargs")
 
-    def __init__(self, cls: "_SpinnerMeta", **kwargs: Any) -> None:
+    def __init__(self, cls: _SpinnerMeta, **kwargs: Any) -> None:
         self._cls = cls
         self._kwargs = kwargs
 
-    def __enter__(self) -> "_SpinnerMeta":
+    def __enter__(self) -> _SpinnerMeta:
         self._cls.start(**self._kwargs)
         return self._cls
 
     def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> bool:
-        self._cls.stop()
+        if exc_type is None:
+            self._cls.stop()
+        else:
+            self._cls.fail()
         return False
 
 
 class _SpinnerMeta(type):
     """Metaclass implementing the class-level singleton spinner."""
 
-    _live: "Live | None" = None
-    _spinner: "rich_Spinner | None" = None
+    _live: Live | None = None
+    _spinner: rich_Spinner | None = None
     # Consoles the live-render hook was manually pushed onto (see _secondary_consoles).
     _hooked: tuple[Console, ...] = ()
     # Reference count of active start()/context "enters" that own the spinner.
@@ -583,27 +619,36 @@ class _SpinnerMeta(type):
         """Start or nest into the active spinner. Reuses existing if already running."""
         cls._depth += 1
         if cls._live is not None:
-            if msg and cls._spinner is not None:
-                cls._spinner.text = str(msg)
-                Colour.debug("Spinner: %s", msg)
+            if msg:
+                cls.text(msg)
             return
         spinner_name = name or choice(SPINNER_NAMES)
         try:
             cls._spinner = _make_spinner(spinner_name, msg, style=style, speed=speed)
-            cls._live = Live(cls._spinner, console=_spinner_console(), refresh_per_second=20)
+            cls._live = Live(cls._spinner, console=_spinner_console(), refresh_per_second=20, transient=True)
             cls._live.start()
             cls._hooked = _secondary_consoles(cls._live)
             for console in cls._hooked:
                 console.push_render_hook(cls._live)
         except BaseException:
             cls._depth -= 1
-            cls._teardown()
+            cls._teardown(persist=False)
             raise
-        if msg:
-            Colour.debug("Spinner: %s", msg)
 
-    def _teardown(cls) -> None:
-        """Stop the Live instance, drop shared render hooks, and clear singleton state."""
+    def _teardown(cls, *, persist: bool = True, failed: bool = False) -> None:
+        """Stop the Live instance, drop shared render hooks, and clear singleton state.
+
+        The trailing message is persisted *before* ``Live.stop()`` so it travels through
+        the live-render hook and replaces the spinner line, rather than landing beneath it.
+
+        Args:
+            persist: Whether to record the trailing message at all.
+            failed: Whether to record it as ``✖`` rather than ``✔``. Ignored when
+                *persist* is ``False``.
+
+        """
+        if persist and cls._live is not None and cls._spinner is not None:
+            _persist_message(cls._spinner.text, failed=failed)
         for console in cls._hooked:
             with suppress(Exception):
                 console.pop_render_hook()
@@ -623,28 +668,53 @@ class _SpinnerMeta(type):
             return
         cls._teardown()
 
-    def terminate(cls) -> None:
-        """Force-stop the spinner regardless of nesting depth."""
+    def fail(cls) -> None:
+        """Stop the spinner and report the current message as failed.
+
+        Records ``✖ <message>`` through :meth:`Colour.error`, so unlike the ``✔`` trail it
+        is visible without enabling ``DEBUG``. Tears down regardless of nesting depth: an
+        exception unwinds every level, and the innermost message is the one that describes
+        what was happening when it broke.
+        """
         cls._depth = 0
-        cls._teardown()
+        cls._teardown(failed=True)
+
+    def terminate(cls, *, persist: bool = False) -> None:
+        """Force-stop the spinner regardless of nesting depth.
+
+        Args:
+            persist: Whether to record the trailing message as a ``✔``. Defaults to
+                ``False``, since an explicit ``terminate()`` means the work was
+                abandoned rather than completed.
+
+        """
+        cls._depth = 0
+        cls._teardown(persist=persist)
 
     def text(cls, msg: str) -> None:
-        """Set the current spinner text."""
-        if cls._spinner is not None:
-            cls._spinner.text = msg
-            Colour.debug("Spinner: %s", msg)
+        """Set the current spinner text, persisting the outgoing message at DEBUG level."""
+        if cls._spinner is None:
+            return
+        previous = cls._spinner.text
+        # Swap before logging: emitting the record refreshes the live render, which would
+        # otherwise redraw the spinner with the message that was just marked complete.
+        cls._spinner.text = Text.from_markup(msg) if isinstance(msg, str) else msg
+        _persist_message(previous)
 
     def __call__(
         cls, msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0
-    ) -> "_SpinnerContext":
+    ) -> _SpinnerContext:
         return _SpinnerContext(cls, msg=msg, name=name, style=style, speed=speed)
 
-    def __enter__(cls) -> "_SpinnerMeta":
+    def __enter__(cls) -> _SpinnerMeta:
         cls.start()
         return cls
 
     def __exit__(cls, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> bool:
-        cls.stop()
+        if exc_type is None:
+            cls.stop()
+        else:
+            cls.fail()
         return False
 
 
@@ -656,6 +726,22 @@ class Spinner(metaclass=_SpinnerMeta):
     """
 
 
+def _exiting_from_unhandled_exception() -> bool:
+    """Return whether the interpreter is shutting down because of an unhandled exception.
+
+    The default excepthook records the exception on :mod:`sys` once a traceback has
+    reached the top level, which covers ``KeyboardInterrupt`` as well. A deliberate
+    :func:`sys.exit` leaves these unset and counts as a clean exit.
+
+    ``sys.last_exc`` exists from Python 3.12; ``sys.last_value`` covers 3.11.
+
+    Returns:
+        ``True`` if a traceback terminated the program.
+
+    """
+    return getattr(sys, "last_exc", None) is not None or getattr(sys, "last_value", None) is not None
+
+
 @atexit.register
 def _terminate_spinner_at_exit() -> None:
     """Restore the terminal if the process exits while a spinner is still running.
@@ -664,6 +750,13 @@ def _terminate_spinner_at_exit() -> None:
     rest of the terminal session whenever ``stop()`` is skipped (unhandled exception,
     :func:`sys.exit`, ``KeyboardInterrupt``). Errors are suppressed because the
     interpreter may already be tearing down its streams.
+
+    On a clean exit the trailing message is persisted as ``✔``, so simply forgetting to
+    call ``stop()`` does not silently drop it. If a traceback terminated the program the
+    message is reported as ``✖`` instead, since the work never finished.
     """
     with suppress(Exception):
-        Spinner.terminate()
+        if _exiting_from_unhandled_exception():
+            Spinner.fail()
+        else:
+            Spinner.terminate(persist=True)

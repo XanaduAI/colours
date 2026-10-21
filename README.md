@@ -229,7 +229,9 @@ Notes:
 - Starts are reference-counted. Nested `with` blocks (or a `start` issued while a spinner is already running) will not stop the spinner early — only the outermost exit / matching `stop` tears it down. An explicit `Spinner.start(...)` counts as entering a context.
 - Importing `colours` does not mutate Rich's global spinner registry. The hard-to-see `toggle*` spinners are excluded from the random pool and the custom `xanaduai*` spinners are kept in a private registry.
 - `Spinner.text("...")` can be called at any time while active to update the displayed message (write-only).
-- Every `start()` and `text()` call emits a `Colour.debug` log (e.g. `Spinner: Running optimization...`). Set `Colour.set_log_level("DEBUG")` to see the history of spinner messages.
+- When a message is superseded (via `text()` or a `start()` on an active spinner) or the spinner stops normally, the completed message is persisted to the scrollback as a `✔` debug record — e.g. `✔ Running optimization...`. Set `Colour.set_log_level("DEBUG")` to see the trail. Blank messages are skipped, and message content is reduced to plain text so it cannot inject styles into the log line.
+- If an exception ends a spinner, the message is reported as `✖` via `Colour.error` instead — so failures are **visible by default**, unlike the `✔` trail. This covers `with Spinner(...)` blocks, `with Spinner:`, an explicit `Spinner.fail()`, and a traceback that terminates the process. A nested failure reports a single `✖` for the innermost message.
+- `Spinner.terminate()` does **not** persist — an explicit terminate means the work was abandoned. The `atexit` guard persists `✔` on a clean exit, so forgetting to call `stop()` won't silently drop your last message.
 - Log records render cleanly above a running spinner on **both** streams: the spinner shares a Rich `Console` with the stdout handler, and shares its live-render hook with the stderr handler's console. Non-tty consoles are left alone so redirected output never receives cursor-control sequences.
 - `Spinner.stop()` is safe to call even if no spinner is running.
 - If the process exits while a spinner is still running (unhandled exception, `sys.exit`, `KeyboardInterrupt`), an `atexit` hook tears it down so the terminal is never left with a hidden cursor.
@@ -269,12 +271,13 @@ Notes:
 
 ### Spinner
 
-- `Spinner.start(message: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0)`: Starts a live spinner. Pass `name` to select a specific animation; defaults to a random choice.
-- `Spinner.stop()`: Stops the active spinner (no-op if already stopped). Unwinding one nesting level.
-- `Spinner.terminate()`: Unconditionally tears down the spinner regardless of nesting depth.
+- `Spinner.start(msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0)`: Starts a live spinner. Pass `name` to select a specific animation; defaults to a random choice.
+- `Spinner.stop()`: Stops the active spinner (no-op if already stopped), unwinding one nesting level. Persists the trailing message as a `✔` green debug record.
+- `Spinner.fail()`: Stops the spinner regardless of nesting depth and reports the current message as `✖` via `Colour.error`. Called automatically when an exception leaves a `with Spinner(...)` block.
+- `Spinner.terminate(*, persist: bool = False)`: Unconditionally tears down the spinner regardless of nesting depth. Pass `persist=True` to still record the trailing `✔`.
 - `Spinner.text(msg: str)`: Sets the spinner text while running.
 - `with Spinner:`: Context-manager lifecycle for automatic start/stop.
-- `with Spinner("msg", *, name=..., style=..., speed=...):`: Context-manager with initial message and options.
+- `with Spinner("message", *, name=..., style=..., speed=...):`: Context-manager with initial message and options.
 
 ## Alias
 
