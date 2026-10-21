@@ -27,6 +27,7 @@ from rich.spinner import Spinner as RichSpinner
 from colours import Colour
 from colours.main import (
     _CUSTOM_SPINNERS,  # noqa: PLC2701
+    _VALID_SPINNER_NAMES,  # noqa: PLC2701
     LOGGER,
     SPINNER_NAMES,
     SPINNERS,
@@ -218,6 +219,43 @@ class TestSpinner:
         """_make_spinner raises ValueError for zero or negative speed."""
         with pytest.raises(ValueError, match="speed must be positive"):
             _make_spinner("dots", "hi", style=None, speed=speed)
+
+    @staticmethod
+    @pytest.mark.parametrize("name", ["dotz", "xanadu", "", "DOTS"])
+    def test_make_spinner_rejects_unknown_name(name: str) -> None:
+        """An unknown name raises ValueError, not the bare KeyError Rich would raise."""
+        with pytest.raises(ValueError, match=f"Invalid spinner name '{name}'"):
+            _make_spinner(name, "hi", style=None, speed=1.0)
+
+    @staticmethod
+    def test_unknown_name_error_lists_valid_names() -> None:
+        """The error must be actionable: it lists the names that would have worked."""
+        with pytest.raises(ValueError, match="Invalid spinner name") as excinfo:
+            _make_spinner("nope", "hi", style=None, speed=1.0)
+        message = str(excinfo.value)
+        assert "xanaduai" in message
+        assert "dots" in message
+        for name in SPINNER_NAMES:
+            assert name in message
+
+    @staticmethod
+    @pytest.mark.parametrize("name", ["toggle", "toggle13"])
+    def test_toggle_spinners_remain_valid_by_explicit_name(name: str) -> None:
+        """Toggles are excluded from the random pool but must stay requestable by name."""
+        assert name not in SPINNER_NAMES
+        assert _make_spinner(name, "hi", style=None, speed=1.0).name == name
+
+    @staticmethod
+    def test_every_random_pool_name_is_constructible() -> None:
+        """Nothing in the random pool may raise when start() happens to choose it."""
+        for name in SPINNER_NAMES:
+            assert _make_spinner(name, "hi", style=None, speed=1.0).name == name
+
+    @staticmethod
+    def test_speed_is_validated_before_name() -> None:
+        """Both invalid: the speed message wins, matching the declared check order."""
+        with pytest.raises(ValueError, match="speed must be positive"):
+            _make_spinner("dotz", "hi", style=None, speed=0)
 
     @staticmethod
     def test_start_rollback_on_failure() -> None:
@@ -685,3 +723,18 @@ class TestSpinnerRegistration:
         assert "xanaduai" not in SPINNERS
         assert "xanaduai_ticker" not in SPINNERS
         assert any("toggle" in name for name in SPINNERS)
+
+    @staticmethod
+    def test_spinner_names_is_publicly_exported() -> None:
+        """SPINNER_NAMES is public-named, so it must be importable from the package root."""
+        import colours  # noqa: PLC0415
+
+        assert colours.SPINNER_NAMES is SPINNER_NAMES
+        assert "SPINNER_NAMES" in colours.__all__
+
+    @staticmethod
+    def test_valid_names_is_a_superset_of_the_random_pool() -> None:
+        """Accepted names add the toggles back on top of the curated random pool."""
+        assert set(SPINNER_NAMES) <= _VALID_SPINNER_NAMES
+        assert set(SPINNERS) | set(_CUSTOM_SPINNERS) == _VALID_SPINNER_NAMES
+        assert _VALID_SPINNER_NAMES - set(SPINNER_NAMES) == {n for n in SPINNERS if "toggle" in n}

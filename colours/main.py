@@ -490,6 +490,10 @@ SPINNER_NAMES: tuple[str, ...] = tuple(
     sorted([name for name in SPINNERS if "toggle" not in name] + list(_CUSTOM_SPINNERS)),
 )
 
+# Every name :func:`_make_spinner` accepts. Broader than ``SPINNER_NAMES``: the ``toggle``
+# spinners are excluded only from the *random* pool, but stay valid when asked for by name.
+_VALID_SPINNER_NAMES: frozenset[str] = frozenset(SPINNERS) | frozenset(_CUSTOM_SPINNERS)
+
 
 def _spinner_console() -> Console:
     """Return the ``Console`` the spinner's ``Live`` must render through.
@@ -568,9 +572,27 @@ def _persist_message(text: RenderableType, *, failed: bool = False) -> None:
 
 
 def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> RichSpinner:
-    """Build a Rich Spinner by name, sourcing custom frames without touching Rich globals."""
+    """Build a Rich Spinner by name, sourcing custom frames without touching Rich globals.
+
+    Args:
+        name: Any key in Rich's spinner registry or :data:`_CUSTOM_SPINNERS`.
+        text: Message rendered beside the animation.
+        style: Rich style applied to the animation frames.
+        speed: Animation speed factor; must be positive.
+
+    Returns:
+        A configured Rich :class:`~rich.spinner.Spinner`.
+
+    Raises:
+        ValueError: If *speed* is not positive, or *name* is not a known spinner.
+
+    """
     if speed <= 0:
         msg = f"speed must be positive, got {speed}"
+        raise ValueError(msg)
+    if name not in _VALID_SPINNER_NAMES:
+        valid_names = ", ".join(sorted(_VALID_SPINNER_NAMES))
+        msg = f"Invalid spinner name '{name}'. Valid names are: {valid_names}"
         raise ValueError(msg)
     if name in _CUSTOM_SPINNERS:
         # Construct with any valid built-in name, then override frames/interval

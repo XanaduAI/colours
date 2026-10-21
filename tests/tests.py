@@ -994,7 +994,15 @@ class TestLoggerInitialization:
         """Test that __all__ declares exactly the expected public names."""
         import colours  # noqa: PLC0415
 
-        assert set(colours.__all__) == {"LOGGER", "Color", "Colour", "ColourHandler", "Spinner", "attach_split_handlers"}
+        assert set(colours.__all__) == {
+            "LOGGER",
+            "SPINNER_NAMES",
+            "Color",
+            "Colour",
+            "ColourHandler",
+            "Spinner",
+            "attach_split_handlers",
+        }
 
 
 class TestExtraParameterEdgeCases:

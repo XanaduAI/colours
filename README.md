@@ -224,7 +224,7 @@ with Spinner("Initial message...") as s:
 ```
 
 Notes:
-- By default a random spinner animation is chosen each time `start()` is called. Pass `name="dots"` (or any key from Rich's spinner registry, plus the custom `"xanaduai"` / `"xanaduai_ticker"`) for a deterministic choice.
+- By default a random spinner animation is chosen each time `start()` is called. Pass `name="dots"` (or any key from Rich's spinner registry, plus the custom `"xanaduai"` / `"xanaduai_ticker"`) for a deterministic choice. An unrecognised name raises `ValueError` listing the valid names.
 - `Spinner.start(...)` is safe to call repeatedly: if a spinner is already active, calling `start` again updates the spinner text (when a non-empty message is provided) and does not create a second spinner.
 - Starts are reference-counted. Nested `with` blocks (or a `start` issued while a spinner is already running) will not stop the spinner early — only the outermost exit / matching `stop` tears it down. An explicit `Spinner.start(...)` counts as entering a context.
 - Importing `colours` does not mutate Rich's global spinner registry. The hard-to-see `toggle*` spinners are excluded from the random pool and the custom `xanaduai*` spinners are kept in a private registry.
@@ -271,13 +271,14 @@ Notes:
 
 ### Spinner
 
-- `Spinner.start(msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0)`: Starts a live spinner. Pass `name` to select a specific animation; defaults to a random choice.
+- `Spinner.start(msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0)`: Starts a live spinner. Pass `name` to select a specific animation; defaults to a random choice. Raises `ValueError` if `name` is unknown or `speed` is not positive.
 - `Spinner.stop()`: Stops the active spinner (no-op if already stopped), unwinding one nesting level. Persists the trailing message as a `✔` green debug record.
 - `Spinner.fail()`: Stops the spinner regardless of nesting depth and reports the current message as `✖` via `Colour.error`. Called automatically when an exception leaves a `with Spinner(...)` block.
 - `Spinner.terminate(*, persist: bool = False)`: Unconditionally tears down the spinner regardless of nesting depth. Pass `persist=True` to still record the trailing `✔`.
 - `Spinner.text(msg: str)`: Sets the spinner text while running.
 - `with Spinner:`: Context-manager lifecycle for automatic start/stop.
 - `with Spinner("message", *, name=..., style=..., speed=...):`: Context-manager with initial message and options.
+- `SPINNER_NAMES`: Tuple of the animation names used for the random default — Rich's built-ins minus the hard-to-see `toggle*` spinners, plus `"xanaduai"` and `"xanaduai_ticker"`. Importable from the package root (`from colours import SPINNER_NAMES`). The `toggle*` names stay valid when passed explicitly.
 
 ## Alias
 
