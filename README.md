@@ -230,7 +230,9 @@ Notes:
 - Importing `colours` does not mutate Rich's global spinner registry. The hard-to-see `toggle*` spinners are excluded from the random pool and the custom `xanaduai*` spinners are kept in a private registry.
 - `Spinner.text("...")` can be called at any time while active to update the displayed message (write-only).
 - Every `start()` and `text()` call emits a `Colour.debug` log (e.g. `Spinner: Running optimization...`). Set `Colour.set_log_level("DEBUG")` to see the history of spinner messages.
+- Log records render cleanly above a running spinner on **both** streams: the spinner shares a Rich `Console` with the stdout handler, and shares its live-render hook with the stderr handler's console. Non-tty consoles are left alone so redirected output never receives cursor-control sequences.
 - `Spinner.stop()` is safe to call even if no spinner is running.
+- If the process exits while a spinner is still running (unhandled exception, `sys.exit`, `KeyboardInterrupt`), an `atexit` hook tears it down so the terminal is never left with a hidden cursor.
 - `Spinner` is **not** thread-safe. Do not call `start`/`stop` concurrently from multiple threads.
 
 ## API Reference

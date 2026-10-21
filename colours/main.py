@@ -13,6 +13,7 @@
 # limitations under the License.
 """Simplified colours for Python terminal applications."""
 
+import atexit
 import logging
 import operator
 import os
@@ -482,6 +483,57 @@ SPINNER_NAMES: tuple[str, ...] = tuple(
 )
 
 
+def _spinner_console() -> Console:
+    """Return the ``Console`` the spinner's ``Live`` must render through.
+
+    ``Live`` has to share a ``Console`` *instance* with the logging handler. Rich
+    installs its live-render hook on a single console, and ``Console.file`` unwraps
+    Rich's ``FileProxy``, so a second console writes straight past the hook and
+    appends log text onto the spinner's line.
+
+    Resolved on every ``start()`` rather than cached, because
+    :func:`Colour.modify_log_format` replaces the handlers.
+
+    Returns:
+        The stdout :class:`ColourHandler` console, or a new stdout ``Console`` if
+        no such handler is attached.
+
+    """
+    for handler in LOGGER.handlers:
+        if isinstance(handler, ColourHandler) and not handler.console.stderr:
+            return handler.console
+    return Console()
+
+
+def _secondary_consoles(live: "Live") -> tuple[Console, ...]:
+    """Return consoles that need the spinner's live-render hook pushed onto them.
+
+    ``Live`` installs its render hook on its own console only. Records routed to the
+    *other* :class:`ColourHandler` (stderr, i.e. ``WARNING`` and above by default) would
+    otherwise be written without first clearing the spinner's line, appending log text
+    onto it. Sharing the hook makes those writes clear the live region and redraw the
+    spinner beneath them.
+
+    Only terminal consoles are hooked: writing cursor-control sequences into a
+    redirected (non-tty) stream would corrupt captured output.
+
+    Args:
+        live: The active ``Live`` instance whose hook should be shared.
+
+    Returns:
+        The distinct terminal consoles to push the hook onto.
+
+    """
+    consoles: list[Console] = []
+    for handler in LOGGER.handlers:
+        if not isinstance(handler, ColourHandler):
+            continue
+        console = handler.console
+        if console is not live.console and console.is_terminal and not any(console is seen for seen in consoles):
+            consoles.append(console)
+    return tuple(consoles)
+
+
 def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> "rich_Spinner":
     """Build a Rich Spinner by name, sourcing custom frames without touching Rich globals."""
     if speed <= 0:
@@ -522,6 +574,8 @@ class _SpinnerMeta(type):
 
     _live: "Live | None" = None
     _spinner: "rich_Spinner | None" = None
+    # Consoles the live-render hook was manually pushed onto (see _secondary_consoles).
+    _hooked: tuple[Console, ...] = ()
     # Reference count of active start()/context "enters" that own the spinner.
     _depth: int = 0
 
@@ -536,8 +590,11 @@ class _SpinnerMeta(type):
         spinner_name = name or choice(SPINNER_NAMES)
         try:
             cls._spinner = _make_spinner(spinner_name, msg, style=style, speed=speed)
-            cls._live = Live(cls._spinner, refresh_per_second=20)
+            cls._live = Live(cls._spinner, console=_spinner_console(), refresh_per_second=20)
             cls._live.start()
+            cls._hooked = _secondary_consoles(cls._live)
+            for console in cls._hooked:
+                console.push_render_hook(cls._live)
         except BaseException:
             cls._depth -= 1
             cls._teardown()
@@ -546,7 +603,11 @@ class _SpinnerMeta(type):
             Colour.debug("Spinner: %s", msg)
 
     def _teardown(cls) -> None:
-        """Stop the Live instance and clear singleton state."""
+        """Stop the Live instance, drop shared render hooks, and clear singleton state."""
+        for console in cls._hooked:
+            with suppress(Exception):
+                console.pop_render_hook()
+        cls._hooked = ()
         if cls._live is not None:
             try:
                 cls._live.stop()
@@ -593,3 +654,16 @@ class Spinner(metaclass=_SpinnerMeta):
     Usage: ``Spinner.start()``/``.stop()``, ``with Spinner:``, or ``with Spinner("msg"):``.
     Starts are reference-counted; only the outermost stop tears it down. Not thread-safe.
     """
+
+
+@atexit.register
+def _terminate_spinner_at_exit() -> None:
+    """Restore the terminal if the process exits while a spinner is still running.
+
+    ``Live.start()`` hides the cursor; without this the cursor stays hidden for the
+    rest of the terminal session whenever ``stop()`` is skipped (unhandled exception,
+    :func:`sys.exit`, ``KeyboardInterrupt``). Errors are suppressed because the
+    interpreter may already be tearing down its streams.
+    """
+    with suppress(Exception):
+        Spinner.terminate()
