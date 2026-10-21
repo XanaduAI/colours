@@ -15,13 +15,14 @@
 
 import atexit
 import logging
-import re
 import sys
 from collections.abc import Generator
 from unittest.mock import Mock
 
 import pytest
 from rich.console import Console
+from rich.markup import render
+from rich.spinner import Spinner as RichSpinner
 
 from colours import Colour
 from colours.main import (
@@ -156,6 +157,40 @@ class TestSpinner:
         assert spinner.name == "xanaduai"
         assert spinner.frames == _CUSTOM_SPINNERS["xanaduai"]["frames"]
         assert spinner.interval == _CUSTOM_SPINNERS["xanaduai"]["interval"]
+
+    @staticmethod
+    @pytest.mark.parametrize("name", ["xanaduai", "xanaduai_ticker"])
+    @pytest.mark.parametrize("speed", [0.5, 2.0, 3.0])
+    def test_custom_spinner_interval_is_independent_of_speed(name: str, speed: float) -> None:
+        """Rich's render() already divides by speed; scaling interval too applies it twice."""
+        spinner = _make_spinner(name, "hi", style=None, speed=speed)
+        assert spinner.interval == _CUSTOM_SPINNERS[name]["interval"]
+        assert spinner.speed == speed
+
+    @staticmethod
+    @pytest.mark.parametrize("name", ["xanaduai", "xanaduai_ticker"])
+    def test_custom_spinners_scale_with_speed_like_builtins(name: str) -> None:
+        """Doubling speed must double the animation rate, matching Rich's built-ins."""
+
+        def frames_per_second(spinner: RichSpinner) -> float:
+            return spinner.speed / (spinner.interval / 1000.0)
+
+        builtin_ratio = frames_per_second(_make_spinner("dots", "hi", style=None, speed=2.0)) / frames_per_second(
+            _make_spinner("dots", "hi", style=None, speed=1.0),
+        )
+        custom_ratio = frames_per_second(_make_spinner(name, "hi", style=None, speed=2.0)) / frames_per_second(
+            _make_spinner(name, "hi", style=None, speed=1.0),
+        )
+        assert custom_ratio == pytest.approx(builtin_ratio)
+        assert custom_ratio == pytest.approx(2.0)
+
+    @staticmethod
+    def test_custom_spinner_advances_frames_at_the_expected_rate() -> None:
+        """End-to-end: a 120ms-interval spinner at speed=2 shows frame 2 after 120ms."""
+        spinner = _make_spinner("xanaduai", "hi", style=None, speed=2.0)
+        spinner.start_time = 0.0
+        assert str(spinner.render(0.0)).startswith(_CUSTOM_SPINNERS["xanaduai"]["frames"][0])
+        assert str(spinner.render(0.12)).startswith(_CUSTOM_SPINNERS["xanaduai"]["frames"][2])
 
     @staticmethod
     def test_call_returns_context_manager() -> None:
@@ -395,17 +430,16 @@ class TestSpinnerPersistence:
     def persisted() -> Generator[list[tuple[str, str]], None, None]:
         """Capture ``(levelname, message)`` pairs emitted to the colours logger.
 
-        ``Colour.error`` wraps its message in colour markup while ``Colour.debug`` does
-        not, so the full-message wrapper is unwrapped to keep assertions readable.
+        Markers carry Rich markup (``Colour.GREEN``/``Colour.RED`` wrap the glyph, and
+        ``Colour.error`` wraps the whole record), so each message is rendered down to its
+        plain form. Literal brackets in user messages survive this, so assertions still
+        catch markup that leaked out of the spinner text.
         """
-        wrapper = re.compile(r"^\[(?P<tag>[a-z0-9_]+)\](?P<body>.*)\[/(?P=tag)\]$", re.DOTALL)
         records: list[tuple[str, str]] = []
 
         class _Capture(logging.Handler):
             def emit(self, record: logging.LogRecord) -> None:
-                message = record.getMessage()
-                match = wrapper.match(message)
-                records.append((record.levelname, match["body"] if match else message))
+                records.append((record.levelname, render(record.getMessage()).plain))
 
         handler = _Capture(level=logging.DEBUG)
         original_level = LOGGER.level
@@ -545,15 +579,12 @@ class TestSpinnerFailure:
     @staticmethod
     @pytest.fixture
     def persisted() -> Generator[list[tuple[str, str]], None, None]:
-        """Capture ``(levelname, message)`` pairs emitted to the colours logger."""
-        wrapper = re.compile(r"^\[(?P<tag>[a-z0-9_]+)\](?P<body>.*)\[/(?P=tag)\]$", re.DOTALL)
+        """Capture ``(levelname, message)`` pairs, rendered down to plain text."""
         records: list[tuple[str, str]] = []
 
         class _Capture(logging.Handler):
             def emit(self, record: logging.LogRecord) -> None:
-                message = record.getMessage()
-                match = wrapper.match(message)
-                records.append((record.levelname, match["body"] if match else message))
+                records.append((record.levelname, render(record.getMessage()).plain))
 
         handler = _Capture(level=logging.DEBUG)
         original_level = LOGGER.level

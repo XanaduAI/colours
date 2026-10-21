@@ -41,10 +41,10 @@ if TYPE_CHECKING:
 
 try:
     from rich.spinner import SPINNERS
-    from rich.spinner import Spinner as rich_Spinner
+    from rich.spinner import Spinner as RichSpinner
 except ImportError:  # pragma: no cover
     from rich._spinners import SPINNERS  # noqa: PLC2701
-    from rich.spinner import Spinner as rich_Spinner
+    from rich.spinner import Spinner as RichSpinner
 
 width, _ = shutil.get_terminal_size()
 
@@ -545,9 +545,9 @@ def _secondary_consoles(live: Live) -> tuple[Console, ...]:
 def _persist_message(text: RenderableType, *, failed: bool = False) -> None:
     """Persist a finished spinner message to the scrollback.
 
-    A completed message is recorded as ``✔`` via :meth:`Colour.debug`, so the trail only
-    appears at ``DEBUG``. A failed one is recorded as ``✖`` via :meth:`Colour.error`, so
-    it is visible by default. The message is reduced to its plain form first: spinner
+    A completed message is recorded as ``✔`` via :meth:`Colour.debug`, so the trail
+    only appears at ``DEBUG``. A failed one is recorded as ``✖`` via :meth:`Colour.error`,
+    so it is visible by default. The message is reduced to its plain form first: spinner
     text may be a styled :class:`~rich.text.Text`, and feeding markup back through the
     handler would re-parse it and let message content inject styles into the log line.
 
@@ -562,12 +562,12 @@ def _persist_message(text: RenderableType, *, failed: bool = False) -> None:
     if not plain:
         return
     if failed:
-        Colour.error("✖ %s", plain)
+        Colour.error("%s %s", Colour.RED("✖"), plain)
     else:
-        Colour.green.debug("✔ %s", plain)
+        Colour.debug("%s %s", Colour.GREEN("✔"), plain)
 
 
-def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> rich_Spinner:
+def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> RichSpinner:
     """Build a Rich Spinner by name, sourcing custom frames without touching Rich globals."""
     if speed <= 0:
         msg = f"speed must be positive, got {speed}"
@@ -575,13 +575,13 @@ def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> r
     if name in _CUSTOM_SPINNERS:
         # Construct with any valid built-in name, then override frames/interval
         # from our private registry. This avoids mutating rich.spinner.SPINNERS.
-        spinner = rich_Spinner("dots", text, style=style, speed=speed)
+        spinner = RichSpinner("dots", text, style=style, speed=speed)
         definition = _CUSTOM_SPINNERS[name]
         spinner.name = name
         spinner.frames = list(definition["frames"])
-        spinner.interval = definition["interval"] / speed
+        spinner.interval = definition["interval"]
         return spinner
-    return rich_Spinner(name, text, style=style, speed=speed)
+    return RichSpinner(name, text, style=style, speed=speed)
 
 
 class _SpinnerContext:
@@ -609,7 +609,7 @@ class _SpinnerMeta(type):
     """Metaclass implementing the class-level singleton spinner."""
 
     _live: Live | None = None
-    _spinner: rich_Spinner | None = None
+    _spinner: RichSpinner | None = None
     # Consoles the live-render hook was manually pushed onto (see _secondary_consoles).
     _hooked: tuple[Console, ...] = ()
     # Reference count of active start()/context "enters" that own the spinner.
@@ -692,7 +692,7 @@ class _SpinnerMeta(type):
         cls._teardown(persist=persist)
 
     def text(cls, msg: str) -> None:
-        """Set the current spinner text, persisting the outgoing message at DEBUG level."""
+        """Set the current spinner text, persisting the outgoing message as a ``✔`` debug record."""
         if cls._spinner is None:
             return
         previous = cls._spinner.text
