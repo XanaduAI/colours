@@ -131,12 +131,16 @@ def attach_split_handlers(
     """Attach a stdout/stderr pair of ColourHandlers to *logger*.
 
     Records below *split_level* are routed to stdout; records at or above it
-    go to stderr.  *logger_level* is used to set the stdout handler's minimum
-    level to ``min(logger_level, split_level)`` so that no records are lost.
+    go to stderr.
+
+    The stdout handler is left at ``NOTSET`` so that *logger* alone controls
+    verbosity: its level plus the :class:`MaxLevelFilter` already decide what
+    reaches stdout, and an explicit handler level would additionally have to be
+    lowered by hand whenever the logger level drops.
 
     Args:
         logger: The :class:`logging.Logger` to attach handlers to.
-        logger_level: The effective level of *logger*.
+        logger_level: The level to apply to *logger*.
         split_level: Severity threshold that splits stdout from stderr.
         show_level: Forward to :class:`ColourHandler` ``show_level``.
         show_path: Forward to :class:`ColourHandler` ``show_path``.
@@ -147,7 +151,7 @@ def attach_split_handlers(
         show_level=show_level,
         show_path=show_path,
         show_time=show_time,
-        level=min(logger_level, split_level),
+        level=logging.NOTSET,
         stderr=False,
     )
     stdout_hndlr.addFilter(MaxLevelFilter(split_level))
@@ -405,13 +409,11 @@ class Colour(Enum):
         Note:
             This affects ALL log calls library-wide and in any client code
             using the `xanadu.colours` logger. This is a global setting.
+            Equivalent to ``LOGGER.setLevel(...)``; the handlers carry no
+            level of their own, so verbosity is controlled entirely here.
 
         """
-        parsed = _parse_log_level(level) if isinstance(level, str) else level
-        LOGGER.setLevel(parsed)
-        for h in LOGGER.handlers:
-            if isinstance(h, ColourHandler) and not h.console.stderr and h.level > parsed:
-                h.setLevel(parsed)
+        LOGGER.setLevel(_parse_log_level(level) if isinstance(level, str) else level)
 
     @staticmethod
     def modify_log_format(

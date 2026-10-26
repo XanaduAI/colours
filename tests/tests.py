@@ -669,7 +669,7 @@ class TestModifyLogFormatDetailed:
         stdout_call = mock_handler_class.call_args_list[0]
         assert stdout_call.kwargs["stderr"] is False
         assert stdout_call.kwargs["show_level"] is False
-        assert stdout_call.kwargs["level"] == min(logging.INFO, logging.WARNING)
+        assert stdout_call.kwargs["level"] == logging.NOTSET
         stderr_call = mock_handler_class.call_args_list[1]
         assert stderr_call.kwargs["stderr"] is True
         assert stderr_call.kwargs["level"] == logging.WARNING
@@ -677,27 +677,33 @@ class TestModifyLogFormatDetailed:
 
     @staticmethod
     @pytest.mark.parametrize(
-        ("logger_level", "split_level", "expected_stdout_level"),
+        ("logger_level", "split_level"),
         [
-            (logging.ERROR, logging.WARNING, logging.WARNING),  # logger > split -> stdout gets split
-            (logging.DEBUG, logging.WARNING, logging.DEBUG),  # logger < split -> stdout gets logger
+            (logging.ERROR, logging.WARNING),
+            (logging.DEBUG, logging.WARNING),
+            (logging.INFO, logging.WARNING),
+            (logging.CRITICAL, logging.DEBUG),
         ],
     )
-    def test_stdout_level_is_min_of_logger_and_split(
+    def test_stdout_handler_level_is_always_notset(
         mock_handler_class: Mock,
         mock_logger: Mock,
         logger_level: int,
         split_level: int,
-        expected_stdout_level: int,
     ) -> None:
-        """Test that stdout handler level equals min(logger.level, split_level)."""
+        """The stdout handler carries no level of its own.
+
+        Verbosity is gated by the logger level plus the MaxLevelFilter, so the handler
+        never needs adjusting when the logger level changes.
+        """
         mock_handler_class.return_value = Mock()
         mock_logger.handlers = []
         mock_logger.level = logger_level
 
         Colour.modify_log_format(stdout_filter_level=split_level)
 
-        assert mock_handler_class.call_args_list[0].kwargs["level"] == expected_stdout_level
+        assert mock_handler_class.call_args_list[0].kwargs["level"] == logging.NOTSET
+        assert mock_handler_class.call_args_list[1].kwargs["level"] == split_level
 
     @staticmethod
     def test_filter_level_as_string(mock_handler_class: Mock, mock_logger: Mock) -> None:
@@ -965,6 +971,94 @@ class TestSetLogLevel:
         assert LOGGER.level == 42
         Colour.set_log_level()  # reset
         assert LOGGER.level == logging.INFO
+
+
+class TestLogLevelRouting:
+    """Test which records actually reach stdout, not just the logger's level attribute."""
+
+    @staticmethod
+    def _stdout_handler() -> ColourHandler:
+        return next(h for h in LOGGER.handlers if isinstance(h, ColourHandler) and not h.console.stderr)
+
+    @staticmethod
+    def _reaches_stdout(levelno: int) -> bool:
+        """Replicate logging's dispatch: logger level, then handler level, then filters."""
+        handler = TestLogLevelRouting._stdout_handler()
+        if not LOGGER.isEnabledFor(levelno):
+            return False
+        record = logging.LogRecord(LOGGER.name, levelno, __file__, 1, "m", None, None)
+        return levelno >= handler.level and bool(handler.filter(record))
+
+    @staticmethod
+    def test_debug_reaches_stdout_after_enabling_debug() -> None:
+        """The point of set_log_level('DEBUG'): DEBUG records must actually be emitted."""
+        try:
+            # Baseline handlers first: with a stale, already-lowered handler this would
+            # pass even when the handler level is what gates the record.
+            Colour.set_log_level("INFO")
+            Colour.modify_log_format()
+
+            Colour.set_log_level("DEBUG")
+            assert TestLogLevelRouting._reaches_stdout(logging.DEBUG)
+        finally:
+            Colour.set_log_level()
+            Colour.modify_log_format()
+
+    @staticmethod
+    def test_raising_the_level_again_suppresses_debug() -> None:
+        """Regression: the stdout handler used to ratchet down and never recover."""
+        try:
+            Colour.set_log_level("DEBUG")
+            assert TestLogLevelRouting._reaches_stdout(logging.DEBUG)
+            Colour.set_log_level("INFO")
+            assert not TestLogLevelRouting._reaches_stdout(logging.DEBUG)
+            assert TestLogLevelRouting._reaches_stdout(logging.INFO)
+            Colour.set_log_level("CRITICAL")
+            assert not TestLogLevelRouting._reaches_stdout(logging.INFO)
+        finally:
+            Colour.set_log_level()
+
+    @staticmethod
+    def test_level_changes_are_order_independent() -> None:
+        """Routing must depend on the current level alone, not on the sequence of calls."""
+        Colour.set_log_level("INFO")
+        direct = TestLogLevelRouting._reaches_stdout(logging.DEBUG)
+        Colour.set_log_level("DEBUG")
+        Colour.set_log_level("INFO")
+        try:
+            assert TestLogLevelRouting._reaches_stdout(logging.DEBUG) == direct
+        finally:
+            Colour.set_log_level()
+
+    @staticmethod
+    def test_logger_set_level_works_without_set_log_level() -> None:
+        """LOGGER is exported, so plain setLevel must behave the same as the helper."""
+        original = LOGGER.level
+        try:
+            # Rebuild handlers from a known baseline so the result cannot depend on
+            # levels left behind by earlier tests.
+            LOGGER.setLevel(logging.INFO)
+            Colour.modify_log_format()
+
+            LOGGER.setLevel(logging.DEBUG)
+            assert TestLogLevelRouting._reaches_stdout(logging.DEBUG)
+            LOGGER.setLevel(logging.INFO)
+            assert not TestLogLevelRouting._reaches_stdout(logging.DEBUG)
+        finally:
+            LOGGER.setLevel(original)
+            Colour.modify_log_format()
+
+    @staticmethod
+    def test_split_still_routes_high_levels_to_stderr_only() -> None:
+        """Dropping the handler level must not leak WARNING+ onto stdout."""
+        try:
+            Colour.set_log_level("DEBUG")
+            assert not TestLogLevelRouting._reaches_stdout(logging.WARNING)
+            assert not TestLogLevelRouting._reaches_stdout(logging.ERROR)
+            stderr_handler = next(h for h in LOGGER.handlers if isinstance(h, ColourHandler) and h.console.stderr)
+            assert stderr_handler.level <= logging.WARNING
+        finally:
+            Colour.set_log_level()
 
 
 class TestLoggerInitialization:
