@@ -111,6 +111,8 @@ def _parse_log_level(level: str | int) -> int:
             any standard logging level name.
 
     """
+    if isinstance(level, int):
+        return level
     with suppress(ValueError):
         return int(level)
     with suppress(AttributeError):
