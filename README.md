@@ -193,6 +193,50 @@ export XANADU_COLOURS_LEVEL=DEBUG
 export XANADU_COLOURS_SPLIT=ERROR
 ```
 
+### Spinner Usage
+
+`colours` also provides a class-level singleton spinner for lightweight progress indicators.
+
+```python
+from colours import Spinner
+
+# Context-manager usage (automatically starts and stops).
+with Spinner("Compiling workflow..."):
+    pass
+
+# Context-manager usage with initial text.
+with Spinner("Initial message..."):
+    Spinner.text("Running optimization...")
+
+# Use a specific spinner by name (default is random each time) and options.
+with Spinner("Submitting...", name="dots", style="green", speed=1.2):
+    Spinner.text("Running optimization...")
+
+# Manual lifecycle usage.
+Spinner.start("Submitting task...")
+Spinner.text("Running optimization...")
+Spinner.stop()
+
+# You can also bind the class inside a context via `as`:
+
+with Spinner("Initial message...") as s:
+    s.text("Running optimization...")  # `s` is the Spinner class
+```
+
+Notes:
+- By default a random spinner animation is chosen each time `start()` is called. Pass `name="dots"` (or any key from Rich's spinner registry, plus the custom `"xanaduai"` / `"xanaduai_ticker"`) for a deterministic choice. An unrecognised name raises `ValueError` listing the valid names.
+- `Spinner.start(...)` is safe to call repeatedly: if a spinner is already active, calling `start` again updates the spinner text (when a non-empty message is provided) and does not create a second spinner.
+- Starts are reference-counted. Nested `with` blocks (or a `start` issued while a spinner is already running) will not stop the spinner early — only the outermost exit / matching `stop` tears it down. An explicit `Spinner.start(...)` counts as entering a context.
+- Importing `colours` does not mutate Rich's global spinner registry. The hard-to-see `toggle*` spinners are excluded from the random pool and the custom `xanaduai*` spinners are kept in a private registry.
+- `Spinner.text("...")` can be called at any time while active to update the displayed message (write-only).
+- When a message is superseded (via `text()` or a `start()` on an active spinner) or the spinner stops normally, the completed message is persisted to the scrollback as a green `✔` debug record — e.g. `✔ Running optimization...`. Set `Colour.set_log_level("DEBUG")` to see the trail. Blank messages are skipped, and message content is reduced to plain text so it cannot inject styles into the log line.
+- If an exception ends a spinner, the message is reported as `✖` via `Colour.error` instead — so failures are **visible by default**, unlike the `✔` trail. This covers `with Spinner(...)` blocks, `with Spinner:`, an explicit `Spinner.fail()`, and a traceback that terminates the process. A nested failure reports a single `✖` for the innermost message.
+- `Spinner.terminate()` does **not** persist — an explicit terminate means the work was abandoned. The `atexit` guard persists `✔` on a clean exit, so forgetting to call `stop()` won't silently drop your last message.
+- Log records render cleanly above a running spinner on **both** streams: the spinner shares a Rich `Console` with the stdout handler, and shares its live-render hook with the stderr handler's console. Non-tty consoles are left alone so redirected output never receives cursor-control sequences.
+- `Spinner.stop()` is safe to call even if no spinner is running.
+- If the process exits while a spinner is still running (unhandled exception, `sys.exit`, `KeyboardInterrupt`), an `atexit` hook tears it down so the terminal is never left with a hidden cursor.
+- `Spinner` is **not** thread-safe. Do not call `start`/`stop` concurrently from multiple threads.
+
 ## API Reference
 
 ### Colour Enum
@@ -224,6 +268,17 @@ export XANADU_COLOURS_SPLIT=ERROR
 #### Environment Variables
 - `XANADU_COLOURS_LEVEL`: Sets the initial log level at import time (default: `INFO`).
 - `XANADU_COLOURS_SPLIT`: Sets the level at which log records switch from stdout to stderr at import time (default: `WARNING`).
+
+### Spinner
+
+- `Spinner.start(msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0)`: Starts a live spinner. Pass `name` to select a specific animation; defaults to a random choice. Raises `ValueError` if `name` is unknown or `speed` is not positive.
+- `Spinner.stop()`: Stops the active spinner (no-op if already stopped), unwinding one nesting level. Persists the trailing message as a `✔` green debug record.
+- `Spinner.fail()`: Stops the spinner regardless of nesting depth and reports the current message as `✖` via `Colour.error`. Called automatically when an exception leaves a `with Spinner(...)` block.
+- `Spinner.terminate(*, persist: bool = False)`: Unconditionally tears down the spinner regardless of nesting depth. Pass `persist=True` to still record the trailing `✔`.
+- `Spinner.text(msg: str)`: Sets the spinner text while running.
+- `with Spinner:`: Context-manager lifecycle for automatic start/stop.
+- `with Spinner("message", *, name=..., style=..., speed=...):`: Context-manager with initial message and options.
+- `SPINNER_NAMES`: Tuple of the animation names used for the random default — Rich's built-ins minus the hard-to-see `toggle*` spinners, plus `"xanaduai"` and `"xanaduai_ticker"`. Importable from the package root (`from colours import SPINNER_NAMES`). The `toggle*` names stay valid when passed explicitly.
 
 ## Alias
 

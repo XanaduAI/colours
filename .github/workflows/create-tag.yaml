@@ -1,0 +1,60 @@
+name: Create a new tag
+
+on:
+  push:
+    branches:
+      - main
+
+# Two merges in quick succession should not cancel.
+concurrency:
+  group: create-tag
+  cancel-in-progress: false
+
+jobs:
+  create_tag:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.2
+        with:
+          version: "0.13.5"
+          python-version: "3.14"
+
+      - name: Extract project version
+        id: version
+        run: echo "version=v$(uv version --short)" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const tag = "${{ steps.version.outputs.version }}";
+
+            // Pushing to `main` requires a PR, a bumped version, and a strict up-to-date policy.
+            // Thus, each tag is new. Re-running this workflow is the one exception.
+            try {
+              await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${tag}`,
+              });
+              core.info(`Tag ${tag} already exists; nothing to do.`);
+              return;
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${tag}`,
+              sha: context.sha,
+            });
+            core.info(`Created tag ${tag} at ${context.sha}.`);

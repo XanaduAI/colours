@@ -13,12 +13,14 @@
 # limitations under the License.
 """An Enum wrapper around Rich colours."""
 
-from .main import LOGGER, Color, Colour, ColourHandler, attach_split_handlers
+from .main import LOGGER, SPINNER_NAMES, Color, Colour, ColourHandler, Spinner, attach_split_handlers
 
 __all__ = [
     "LOGGER",
+    "SPINNER_NAMES",
     "Color",
     "Colour",
     "ColourHandler",
+    "Spinner",
     "attach_split_handlers",
 ]
