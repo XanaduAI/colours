@@ -43,7 +43,7 @@ try:
     from rich.spinner import SPINNERS
     from rich.spinner import Spinner as RichSpinner
 except ImportError:  # pragma: no cover
-    from rich._spinners import SPINNERS  # noqa: PLC2701
+    from rich._spinners import SPINNERS  # ruff: ignore[import-private-name]
     from rich.spinner import Spinner as RichSpinner
 
 width, _ = shutil.get_terminal_size()
@@ -174,9 +174,9 @@ def attach_split_handlers(
 # Users can adjust verbosity with Colour.set_log_level() or XANADU_COLOURS_LEVEL as needed.
 XANADU_COLOURS_LEVEL = _parse_log_level(os.getenv("XANADU_COLOURS_LEVEL", logging.INFO))
 XANADU_COLOURS_SPLIT = _parse_log_level(os.getenv("XANADU_COLOURS_SPLIT", logging.WARNING))
-LOGGER = logging.getLogger("xanadu.colours")
-LOGGER.propagate = False
-attach_split_handlers(LOGGER, XANADU_COLOURS_LEVEL, XANADU_COLOURS_SPLIT)
+colour_logger = logging.getLogger("xanadu.colours")
+colour_logger.propagate = False
+attach_split_handlers(colour_logger, XANADU_COLOURS_LEVEL, XANADU_COLOURS_SPLIT)
 
 
 # region Colour Descriptors
@@ -200,7 +200,7 @@ class _PrintDescriptor:
             return rich_print
 
         @wraps(rich_print)
-        def colour_print(*args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        def colour_print(*args, **kwargs) -> None:  # ruff: ignore[missing-type-args, missing-type-kwargs]
             rich_print(*map(instance, args), **kwargs)
 
         return colour_print
@@ -221,30 +221,30 @@ class _PredefinedLogDescriptor:
 
     def __get__(self, instance: Colour | None, owner: type[Colour]) -> Callable[..., None]:
         """Return appropriate log function based on access context."""
-        log_method = getattr(LOGGER, self.level)
+        log_method = getattr(colour_logger, self.level)
         if instance is None:
 
             @wraps(log_method)
-            def log_func(msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-                if LOGGER.isEnabledFor(self.loglevel):
+            def log_func(msg: str, *args, **kwargs) -> None:  # ruff: ignore[missing-type-args, missing-type-kwargs]
+                if colour_logger.isEnabledFor(self.loglevel):
                     log_method(msg, *args, **kwargs)
 
             return log_func
 
         @wraps(log_method)
-        def log_func(msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-            if LOGGER.isEnabledFor(self.loglevel):
+        def log_func(msg: str, *args, **kwargs) -> None:  # ruff: ignore[missing-type-args, missing-type-kwargs]
+            if colour_logger.isEnabledFor(self.loglevel):
                 log_method(instance(msg), *args, **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})})
 
         return log_func
 
 
 class _LoggerDescriptor:
-    """Descriptor that returns the underlying LOGGER directly, bypassing enum member wrapping."""
+    """Descriptor that returns the underlying colour_logger directly, bypassing enum member wrapping."""
 
     def __get__(self, instance: Colour | None, owner: type[Colour]) -> logging.Logger:
-        """Return the module-level LOGGER regardless of access context."""
-        return LOGGER
+        """Return the module-level colour_logger regardless of access context."""
+        return colour_logger
 
 
 class _VersatileLogDescriptor:
@@ -260,12 +260,12 @@ class _VersatileLogDescriptor:
         """Return appropriate log function based on access context."""
         if instance is None:
 
-            @wraps(LOGGER.log)
-            def log(level: int | str, msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            @wraps(colour_logger.log)
+            def log(level: int | str, msg: str, *args, **kwargs) -> None:  # ruff: ignore[missing-type-args, missing-type-kwargs]
                 # Use instance method to get proper error handling
                 loglevel: int = _parse_log_level(level) if isinstance(level, str) else level
-                if LOGGER.isEnabledFor(loglevel):
-                    LOGGER.log(
+                if colour_logger.isEnabledFor(loglevel):
+                    colour_logger.log(
                         loglevel,
                         msg,
                         *args,
@@ -274,11 +274,11 @@ class _VersatileLogDescriptor:
 
             return log
 
-        @wraps(LOGGER.log)
-        def log(level: int | str, msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        @wraps(colour_logger.log)
+        def log(level: int | str, msg: str, *args, **kwargs) -> None:  # ruff: ignore[missing-type-args, missing-type-kwargs]
             loglevel: int = _parse_log_level(level) if isinstance(level, str) else level
-            if LOGGER.isEnabledFor(loglevel):
-                LOGGER.log(
+            if colour_logger.isEnabledFor(loglevel):
+                colour_logger.log(
                     loglevel,
                     instance(msg),
                     *args,
@@ -310,7 +310,7 @@ class Colour(Enum):
     BLUE = "bold deep_sky_blue1"
     PURPLE = "bold magenta"
     DEFAULT = "bold default"
-    BOLD = "bold default"  # noqa: PIE796, alias
+    BOLD = "bold default"  # ruff: ignore[non-unique-enums]
     ITALIC = "bold italic"
 
     def __call__(self, string: Any) -> str:
@@ -345,8 +345,8 @@ class Colour(Enum):
 
         Colour.warning("Houston, we have a %s", "bit of a problem", exc_info=True)
         """
-        if LOGGER.isEnabledFor(logging.WARNING):
-            LOGGER.warning(
+        if colour_logger.isEnabledFor(logging.WARNING):
+            colour_logger.warning(
                 Colour.orange(msg),
                 *args,
                 **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})},
@@ -364,8 +364,8 @@ class Colour(Enum):
 
         Colour.error("Houston, we have a %s", "major problem", exc_info=True)
         """
-        if LOGGER.isEnabledFor(logging.ERROR):
-            LOGGER.error(
+        if colour_logger.isEnabledFor(logging.ERROR):
+            colour_logger.error(
                 Colour.red_error(Colour.red(msg)),
                 *args,
                 **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})},
@@ -382,8 +382,8 @@ class Colour(Enum):
 
         Colour.critical("Houston, we have a %s", "major disaster", exc_info=True)
         """
-        if LOGGER.isEnabledFor(logging.CRITICAL):
-            LOGGER.critical(
+        if colour_logger.isEnabledFor(logging.CRITICAL):
+            colour_logger.critical(
                 Colour.RED(msg),
                 *args,
                 **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})},
@@ -411,11 +411,11 @@ class Colour(Enum):
         Note:
             This affects ALL log calls library-wide and in any client code
             using the `xanadu.colours` logger. This is a global setting.
-            Equivalent to ``LOGGER.setLevel(...)``; the handlers carry no
+            Equivalent to ``colour_logger.setLevel(...)``; the handlers carry no
             level of their own, so verbosity is controlled entirely here.
 
         """
-        LOGGER.setLevel(_parse_log_level(level) if isinstance(level, str) else level)
+        colour_logger.setLevel(_parse_log_level(level) if isinstance(level, str) else level)
 
     @staticmethod
     def modify_log_format(
@@ -440,13 +440,13 @@ class Colour(Enum):
 
         """
         # Remove all existing handlers
-        rm_hndlrs = [handler for handler in LOGGER.handlers if isinstance(handler, ColourHandler)]
+        rm_hndlrs = [handler for handler in colour_logger.handlers if isinstance(handler, ColourHandler)]
         for handler in rm_hndlrs:
-            LOGGER.removeHandler(handler)
+            colour_logger.removeHandler(handler)
 
         # Add new handlers with the updated format
         filter_split = _parse_log_level(stdout_filter_level)
-        attach_split_handlers(LOGGER, LOGGER.level, filter_split, show_level, show_path, show_time)
+        attach_split_handlers(colour_logger, colour_logger.level, filter_split, show_level, show_path, show_time)
 
 
 # American English alias
@@ -515,7 +515,7 @@ def _spinner_console() -> Console:
         no such handler is attached.
 
     """
-    for handler in LOGGER.handlers:
+    for handler in colour_logger.handlers:
         if isinstance(handler, ColourHandler) and not handler.console.stderr:
             return handler.console
     return Console()
@@ -541,7 +541,7 @@ def _secondary_consoles(live: Live) -> tuple[Console, ...]:
 
     """
     consoles: list[Console] = []
-    for handler in LOGGER.handlers:
+    for handler in colour_logger.handlers:
         if not isinstance(handler, ColourHandler):
             continue
         console = handler.console

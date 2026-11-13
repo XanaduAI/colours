@@ -29,7 +29,7 @@ pip install git+https://github.com/XanaduAI/colours.git
 - **Rich logging integration**: Leverages Rich's log formatting to print colourful logs to the console.
 - **Stdout/stderr log routing**: Messages below `WARNING` go to stdout; `WARNING` and above go to stderr.
 - **Environment variable configuration**: Set `XANADU_COLOURS_LEVEL` and `XANADU_COLOURS_SPLIT` to configure logging at startup without code changes.
-- **Logger access**: Direct access to the colours logger via `Colour.logger` or `from colours import LOGGER`.
+- **Logger access**: Direct access to the colours logger via `Colour.logger` or `from colours import colour_logger`.
     - Pre-configured with `RichHandler` and `INFO` level.
     - Can be customized for advanced usage.
 
@@ -76,7 +76,9 @@ Colour.blue.print("This is blue text", Colour.YELLOW("with bold yellow text"))
 Colour.PURPLE.print("This is bold purple text", Colour.orange("with bold orange text"))
 
 # Basic BOLD, italic, and bold-italic options.
-Colour.print(Colour.BOLD("This is bold text,"), Colour.italic("this is italicized,"), Colour.ITALIC("and this is BOLD and italicized."))
+Colour.print(
+    Colour.BOLD("This is bold text,"), Colour.italic("this is italicized,"), Colour.ITALIC("and this is BOLD and italicized.")
+)
 ```
 
 ### Basic Logging
@@ -108,7 +110,9 @@ Colour.purple.info("This is a purple info log, also with a %s.", Colour.blue("hi
 Colour.warning("This is an orange warning log, customized with a %s.", Colour.blue("hint of blue"))
 
 # Basic error logging. Words that contain "error" will be bolded for emphasis.
-Colour.error("Error: This is a red error log, customized with a %s.", Colour.blue("hint of blue with the nested error being bold red"))
+Colour.error(
+    "Error: This is a red error log, customized with a %s.", Colour.blue("hint of blue with the nested error being bold red")
+)
 
 # Basic critical logging.
 Colour.critical("This is bold red critical log, customized with a %s.", Colour.blue("hint of bold blue"))
@@ -120,19 +124,19 @@ Colour.critical("This is bold red critical log, customized with a %s.", Colour.b
 from colours import Colour, Color  # Both spellings supported
 
 # Reset text to the default terminal colour value.
-Colour.RED.print("BoldRedError:", Colour.default("written in the \"default\" colour, probably white or black."))
+Colour.RED.print("BoldRedError:", Colour.default('written in the "default" colour, probably white or black.'))
 
 # Highlight errors in text automatically for displaying.
 error_msg = "ValueError: invalid input"
 highlighted = Colour.red_error(error_msg)
 Color.print(highlighted)  # "ValueError" will be highlighted in red
 # You can also print/display it immediately.
-Colour.red_error(error_msg, display = True)
+Colour.red_error(error_msg, display=True)
 
 # Remove ANSI escape sequences
 ansi_text = "\x1b[31mHello, Red World!\x1b[0m"
 clean_text = Colour.remove_ansi(ansi_text)
-assert clean_text == "Hello, Red World!" # True
+assert clean_text == "Hello, Red World!"  # True
 
 # Rainbow colours
 clrs = [c for c in Colour if c != Colour.logger and not any(attr in c.value for attr in ["bold", "default", "italic"])]
@@ -152,12 +156,14 @@ Colour.set_log_level("debug")
 # You can also get the logger directly and set it directly.
 # Option 1: Get it yourself
 import logging
+
 colour_logger = logging.getLogger("xanadu.colours")
 colour_logger.setLevel(logging.DEBUG)
 
 # Option 2: Use exported logger
-from colours import LOGGER
-LOGGER.setLevel(logging.DEBUG)
+from colours import colour_logger
+
+colour_logger.setLevel(logging.DEBUG)
 
 # Option 3: Access logger directly from the Colour enum
 Colour.logger.setLevel(logging.DEBUG)
@@ -263,7 +269,7 @@ Notes:
 - `modify_log_format(show_level, show_path, show_time, *, stdout_filter_level)`: Adjusts handler display options and the level at which logs are routed from stdout to stderr.
 
 #### Logger Attribute
-- `logger`: Direct reference to the underlying `logging.Logger` instance (`xanadu.colours`). Equivalent to `from colours import LOGGER`.
+- `logger`: Direct reference to the underlying `logging.Logger` instance (`xanadu.colours`). Equivalent to `from colours import colour_logger`.
 
 #### Environment Variables
 - `XANADU_COLOURS_LEVEL`: Sets the initial log level at import time (default: `INFO`).
@@ -286,7 +292,7 @@ Both `Colour` and `Color` are available for your preferred spelling:
 
 ```python
 from colours import Colour  # Canadian spelling
-from colours import Color   # American spelling
+from colours import Color  # American spelling
 ```
 
 ## Development
