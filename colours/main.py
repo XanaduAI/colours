@@ -13,24 +13,43 @@
 # limitations under the License.
 """Simplified colours for Python terminal applications."""
 
+from __future__ import annotations
+
+import atexit
 import logging
 import operator
 import os
 import re
 import shutil
-from collections.abc import Callable
+import sys
 from contextlib import suppress
 from enum import Enum
 from functools import wraps
-from typing import Any, overload
+from random import choice
+from typing import TYPE_CHECKING, Any, overload
 
 from rich import print as rich_print
 from rich.console import Console
+from rich.live import Live
 from rich.logging import RichHandler
+from rich.text import Text
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from rich.console import RenderableType
+
+try:
+    from rich.spinner import SPINNERS
+    from rich.spinner import Spinner as RichSpinner
+except ImportError:  # pragma: no cover
+    from rich._spinners import SPINNERS  # noqa: PLC2701
+    from rich.spinner import Spinner as RichSpinner
 
 width, _ = shutil.get_terminal_size()
 
 
+# region ColourHandler
 class ColourHandler(RichHandler):
     """A custom instance of the RichHandler class."""
 
@@ -92,6 +111,8 @@ def _parse_log_level(level: str | int) -> int:
             any standard logging level name.
 
     """
+    if isinstance(level, int):
+        return level
     with suppress(ValueError):
         return int(level)
     with suppress(AttributeError):
@@ -112,12 +133,16 @@ def attach_split_handlers(
     """Attach a stdout/stderr pair of ColourHandlers to *logger*.
 
     Records below *split_level* are routed to stdout; records at or above it
-    go to stderr.  *logger_level* is used to set the stdout handler's minimum
-    level to ``min(logger_level, split_level)`` so that no records are lost.
+    go to stderr.
+
+    The stdout handler is left at ``NOTSET`` so that *logger* alone controls
+    verbosity: its level plus the :class:`MaxLevelFilter` already decide what
+    reaches stdout, and an explicit handler level would additionally have to be
+    lowered by hand whenever the logger level drops.
 
     Args:
         logger: The :class:`logging.Logger` to attach handlers to.
-        logger_level: The effective level of *logger*.
+        logger_level: The level to apply to *logger*.
         split_level: Severity threshold that splits stdout from stderr.
         show_level: Forward to :class:`ColourHandler` ``show_level``.
         show_path: Forward to :class:`ColourHandler` ``show_path``.
@@ -128,7 +153,7 @@ def attach_split_handlers(
         show_level=show_level,
         show_path=show_path,
         show_time=show_time,
-        level=min(logger_level, split_level),
+        level=logging.NOTSET,
         stderr=False,
     )
     stdout_hndlr.addFilter(MaxLevelFilter(split_level))
@@ -154,6 +179,7 @@ LOGGER.propagate = False
 attach_split_handlers(LOGGER, XANADU_COLOURS_LEVEL, XANADU_COLOURS_SPLIT)
 
 
+# region Colour Descriptors
 class _PrintDescriptor:
     """Descriptor to handle both static and instance print methods.
 
@@ -163,12 +189,12 @@ class _PrintDescriptor:
     """
 
     @overload
-    def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
+    def __get__(self, instance: None, owner: type[Colour]) -> Callable[..., None]: ...
 
     @overload
-    def __get__(self, instance: "Colour", owner: type["Colour"]) -> Callable[..., None]: ...
+    def __get__(self, instance: Colour, owner: type[Colour]) -> Callable[..., None]: ...
 
-    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
+    def __get__(self, instance: Colour | None, owner: type[Colour]) -> Callable[..., None]:
         """Return appropriate print function based on access context."""
         if instance is None:
             return rich_print
@@ -188,12 +214,12 @@ class _PredefinedLogDescriptor:
         self.loglevel: int = _parse_log_level(level)
 
     @overload
-    def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
+    def __get__(self, instance: None, owner: type[Colour]) -> Callable[..., None]: ...
 
     @overload
-    def __get__(self, instance: "Colour", owner: type["Colour"]) -> Callable[..., None]: ...
+    def __get__(self, instance: Colour, owner: type[Colour]) -> Callable[..., None]: ...
 
-    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
+    def __get__(self, instance: Colour | None, owner: type[Colour]) -> Callable[..., None]:
         """Return appropriate log function based on access context."""
         log_method = getattr(LOGGER, self.level)
         if instance is None:
@@ -216,7 +242,7 @@ class _PredefinedLogDescriptor:
 class _LoggerDescriptor:
     """Descriptor that returns the underlying LOGGER directly, bypassing enum member wrapping."""
 
-    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> logging.Logger:
+    def __get__(self, instance: Colour | None, owner: type[Colour]) -> logging.Logger:
         """Return the module-level LOGGER regardless of access context."""
         return LOGGER
 
@@ -225,12 +251,12 @@ class _VersatileLogDescriptor:
     """Descriptor for versatile log method that takes level as first argument."""
 
     @overload
-    def __get__(self, instance: None, owner: type["Colour"]) -> Callable[..., None]: ...
+    def __get__(self, instance: None, owner: type[Colour]) -> Callable[..., None]: ...
 
     @overload
-    def __get__(self, instance: "Colour", owner: type["Colour"]) -> Callable[..., None]: ...
+    def __get__(self, instance: Colour, owner: type[Colour]) -> Callable[..., None]: ...
 
-    def __get__(self, instance: "Colour | None", owner: type["Colour"]) -> Callable[..., None]:
+    def __get__(self, instance: Colour | None, owner: type[Colour]) -> Callable[..., None]:
         """Return appropriate log function based on access context."""
         if instance is None:
 
@@ -262,6 +288,7 @@ class _VersatileLogDescriptor:
         return log
 
 
+# region Colour Enum
 class Colour(Enum):
     """Wrap, print, or, log text using Rich colours."""
 
@@ -384,6 +411,8 @@ class Colour(Enum):
         Note:
             This affects ALL log calls library-wide and in any client code
             using the `xanadu.colours` logger. This is a global setting.
+            Equivalent to ``LOGGER.setLevel(...)``; the handlers carry no
+            level of their own, so verbosity is controlled entirely here.
 
         """
         LOGGER.setLevel(_parse_log_level(level) if isinstance(level, str) else level)
@@ -422,3 +451,338 @@ class Colour(Enum):
 
 # American English alias
 Color = Colour
+
+
+# region Spinner
+# Custom XanaduAI spinner definitions. Kept in a private registry so that
+# importing ``colours`` never mutates Rich's global ``SPINNERS`` dict.
+_CUSTOM_SPINNERS: dict[str, dict[str, Any]] = {
+    "xanaduai": {
+        "interval": 120,
+        "frames": [
+            "|XanaduAI    |",
+            "| XanaduAI   |",
+            "|  XanaduAI  |",
+            "|   XanaduAI |",
+            "|    XanaduAI|",
+            "|   XanaduAI |",
+            "|  XanaduAI  |",
+            "| XanaduAI   |",
+        ],
+    },
+    "xanaduai_ticker": {
+        "interval": 100,
+        "frames": [
+            "|XNDU      |",
+            "| XNDU     |",
+            "|  XNDU    |",
+            "|   XNDU   |",
+            "|    XNDU  |",
+            "|     XNDU |",
+            "|      XNDU|",
+            "|U      XND|",
+            "|DU      XN|",
+            "|NDU      X|",
+        ],
+    },
+}
+
+# Names available to this library:
+# - Rich's built-ins (without the hard-to-see "toggle" spinners).
+# - Custom Xanadu spinners.
+SPINNER_NAMES: tuple[str, ...] = tuple(
+    sorted([name for name in SPINNERS if "toggle" not in name] + list(_CUSTOM_SPINNERS)),
+)
+
+# Every name :func:`_make_spinner` accepts. Broader than ``SPINNER_NAMES``: the ``toggle``
+# spinners are excluded only from the *random* pool, but stay valid when asked for by name.
+_VALID_SPINNER_NAMES: frozenset[str] = frozenset(SPINNERS) | frozenset(_CUSTOM_SPINNERS)
+
+
+def _spinner_console() -> Console:
+    """Return the ``Console`` the spinner's ``Live`` must render through.
+
+    ``Live`` has to share a ``Console`` *instance* with the logging handler. Rich
+    installs its live-render hook on a single console, and ``Console.file`` unwraps
+    Rich's ``FileProxy``, so a second console writes straight past the hook and
+    appends log text onto the spinner's line.
+
+    Resolved on every ``start()`` rather than cached, because
+    :func:`Colour.modify_log_format` replaces the handlers.
+
+    Returns:
+        The stdout :class:`ColourHandler` console, or a new stdout ``Console`` if
+        no such handler is attached.
+
+    """
+    for handler in LOGGER.handlers:
+        if isinstance(handler, ColourHandler) and not handler.console.stderr:
+            return handler.console
+    return Console()
+
+
+def _secondary_consoles(live: Live) -> tuple[Console, ...]:
+    """Return consoles that need the spinner's live-render hook pushed onto them.
+
+    ``Live`` installs its render hook on its own console only. Records routed to the
+    *other* :class:`ColourHandler` (stderr, i.e. ``WARNING`` and above by default) would
+    otherwise be written without first clearing the spinner's line, appending log text
+    onto it. Sharing the hook makes those writes clear the live region and redraw the
+    spinner beneath them.
+
+    Only terminal consoles are hooked: writing cursor-control sequences into a
+    redirected (non-tty) stream would corrupt captured output.
+
+    Args:
+        live: The active ``Live`` instance whose hook should be shared.
+
+    Returns:
+        The distinct terminal consoles to push the hook onto.
+
+    """
+    consoles: list[Console] = []
+    for handler in LOGGER.handlers:
+        if not isinstance(handler, ColourHandler):
+            continue
+        console = handler.console
+        if console is not live.console and console.is_terminal and not any(console is seen for seen in consoles):
+            consoles.append(console)
+    return tuple(consoles)
+
+
+def _persist_message(text: RenderableType, *, failed: bool = False) -> None:
+    """Persist a finished spinner message to the scrollback.
+
+    A completed message is recorded as ``✔`` via :meth:`Colour.debug`, so the trail
+    only appears at ``DEBUG``. A failed one is recorded as ``✖`` via :meth:`Colour.error`,
+    so it is visible by default. The message is reduced to its plain form first: spinner
+    text may be a styled :class:`~rich.text.Text`, and feeding markup back through the
+    handler would re-parse it and let message content inject styles into the log line.
+
+    Args:
+        text: The spinner message. Rich declares ``Spinner.text`` as any renderable, so
+            :class:`~rich.text.Text` is reduced to its plain form and anything else is
+            stringified. Blank messages are skipped.
+        failed: Whether the spinner ended because of an exception.
+
+    """
+    plain = text.plain if isinstance(text, Text) else str(text)
+    if not plain:
+        return
+    if failed:
+        Colour.error("%s %s", Colour.RED("✖"), plain)
+    else:
+        Colour.debug("%s %s", Colour.GREEN("✔"), plain)
+
+
+def _make_spinner(name: str, text: str, *, style: str | None, speed: float) -> RichSpinner:
+    """Build a Rich Spinner by name, sourcing custom frames without touching Rich globals.
+
+    Args:
+        name: Any key in Rich's spinner registry or :data:`_CUSTOM_SPINNERS`.
+        text: Message rendered beside the animation.
+        style: Rich style applied to the animation frames.
+        speed: Animation speed factor; must be positive.
+
+    Returns:
+        A configured Rich :class:`~rich.spinner.Spinner`.
+
+    Raises:
+        ValueError: If *speed* is not positive, or *name* is not a known spinner.
+
+    """
+    if speed <= 0:
+        msg = f"speed must be positive, got {speed}"
+        raise ValueError(msg)
+    if name not in _VALID_SPINNER_NAMES:
+        valid_names = ", ".join(sorted(_VALID_SPINNER_NAMES))
+        msg = f"Invalid spinner name '{name}'. Valid names are: {valid_names}"
+        raise ValueError(msg)
+    if name in _CUSTOM_SPINNERS:
+        # Construct with any valid built-in name, then override frames/interval
+        # from our private registry. This avoids mutating rich.spinner.SPINNERS.
+        spinner = RichSpinner("dots", text, style=style, speed=speed)
+        definition = _CUSTOM_SPINNERS[name]
+        spinner.name = name
+        spinner.frames = list(definition["frames"])
+        spinner.interval = definition["interval"]
+        return spinner
+    return RichSpinner(name, text, style=style, speed=speed)
+
+
+class _SpinnerContext:
+    """Per-call context object for parametrised ``with Spinner(...)`` blocks."""
+
+    __slots__ = ("_cls", "_kwargs")
+
+    def __init__(self, cls: _SpinnerMeta, **kwargs: Any) -> None:
+        self._cls = cls
+        self._kwargs = kwargs
+
+    def __enter__(self) -> _SpinnerMeta:
+        self._cls.start(**self._kwargs)
+        return self._cls
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+        if exc_type is None:
+            self._cls.stop()
+        else:
+            self._cls.fail()
+        return False
+
+
+class _SpinnerMeta(type):
+    """Metaclass implementing the class-level singleton spinner."""
+
+    _live: Live | None = None
+    _spinner: RichSpinner | None = None
+    # Consoles the live-render hook was manually pushed onto (see _secondary_consoles).
+    _hooked: tuple[Console, ...] = ()
+    # Reference count of active start()/context "enters" that own the spinner.
+    _depth: int = 0
+
+    def start(cls, msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0) -> None:
+        """Start or nest into the active spinner. Reuses existing if already running."""
+        cls._depth += 1
+        if cls._live is not None:
+            if msg:
+                cls.text(msg)
+            return
+        spinner_name = name or choice(SPINNER_NAMES)
+        try:
+            cls._spinner = _make_spinner(spinner_name, msg, style=style, speed=speed)
+            cls._live = Live(cls._spinner, console=_spinner_console(), refresh_per_second=20, transient=True)
+            cls._live.start()
+            cls._hooked = _secondary_consoles(cls._live)
+            for console in cls._hooked:
+                console.push_render_hook(cls._live)
+        except BaseException:
+            cls._depth -= 1
+            cls._teardown(persist=False)
+            raise
+
+    def _teardown(cls, *, persist: bool = True, failed: bool = False) -> None:
+        """Stop the Live instance, drop shared render hooks, and clear singleton state.
+
+        The trailing message is persisted *before* ``Live.stop()`` so it travels through
+        the live-render hook and replaces the spinner line, rather than landing beneath it.
+
+        Args:
+            persist: Whether to record the trailing message at all.
+            failed: Whether to record it as ``✖`` rather than ``✔``. Ignored when
+                *persist* is ``False``.
+
+        """
+        if persist and cls._live is not None and cls._spinner is not None:
+            _persist_message(cls._spinner.text, failed=failed)
+        for console in cls._hooked:
+            with suppress(Exception):
+                console.pop_render_hook()
+        cls._hooked = ()
+        if cls._live is not None:
+            try:
+                cls._live.stop()
+            finally:
+                cls._live = None
+                cls._spinner = None
+
+    def stop(cls) -> None:
+        """Unwind one nesting level; tears down only at the outermost stop."""
+        if cls._depth > 0:
+            cls._depth -= 1
+        if cls._depth > 0:
+            return
+        cls._teardown()
+
+    def fail(cls) -> None:
+        """Stop the spinner and report the current message as failed.
+
+        Records ``✖ <message>`` through :meth:`Colour.error`, so unlike the ``✔`` trail it
+        is visible without enabling ``DEBUG``. Tears down regardless of nesting depth: an
+        exception unwinds every level, and the innermost message is the one that describes
+        what was happening when it broke.
+        """
+        cls._depth = 0
+        cls._teardown(failed=True)
+
+    def terminate(cls, *, persist: bool = False) -> None:
+        """Force-stop the spinner regardless of nesting depth.
+
+        Args:
+            persist: Whether to record the trailing message as a ``✔``. Defaults to
+                ``False``, since an explicit ``terminate()`` means the work was
+                abandoned rather than completed.
+
+        """
+        cls._depth = 0
+        cls._teardown(persist=persist)
+
+    def text(cls, msg: str) -> None:
+        """Set the current spinner text, persisting the outgoing message as a ``✔`` debug record."""
+        if cls._spinner is None:
+            return
+        previous = cls._spinner.text
+        # Swap before logging: emitting the record refreshes the live render, which would
+        # otherwise redraw the spinner with the message that was just marked complete.
+        cls._spinner.text = Text.from_markup(msg) if isinstance(msg, str) else msg
+        _persist_message(previous)
+
+    def __call__(
+        cls, msg: str = "", *, name: str | None = None, style: str | None = None, speed: float = 1.0
+    ) -> _SpinnerContext:
+        return _SpinnerContext(cls, msg=msg, name=name, style=style, speed=speed)
+
+    def __enter__(cls) -> _SpinnerMeta:
+        cls.start()
+        return cls
+
+    def __exit__(cls, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+        if exc_type is None:
+            cls.stop()
+        else:
+            cls.fail()
+        return False
+
+
+class Spinner(metaclass=_SpinnerMeta):
+    """Class-level singleton spinner backed by Rich Live.
+
+    Usage: ``Spinner.start()``/``.stop()``, ``with Spinner:``, or ``with Spinner("msg"):``.
+    Starts are reference-counted; only the outermost stop tears it down. Not thread-safe.
+    """
+
+
+def _exiting_from_unhandled_exception() -> bool:
+    """Return whether the interpreter is shutting down because of an unhandled exception.
+
+    The default excepthook records the exception on :mod:`sys` once a traceback has
+    reached the top level, which covers ``KeyboardInterrupt`` as well. A deliberate
+    :func:`sys.exit` leaves these unset and counts as a clean exit.
+
+    ``sys.last_exc`` exists from Python 3.12; ``sys.last_value`` covers 3.11.
+
+    Returns:
+        ``True`` if a traceback terminated the program.
+
+    """
+    return getattr(sys, "last_exc", None) is not None or getattr(sys, "last_value", None) is not None
+
+
+@atexit.register
+def _terminate_spinner_at_exit() -> None:
+    """Restore the terminal if the process exits while a spinner is still running.
+
+    ``Live.start()`` hides the cursor; without this the cursor stays hidden for the
+    rest of the terminal session whenever ``stop()`` is skipped (unhandled exception,
+    :func:`sys.exit`, ``KeyboardInterrupt``). Errors are suppressed because the
+    interpreter may already be tearing down its streams.
+
+    On a clean exit the trailing message is persisted as ``✔``, so simply forgetting to
+    call ``stop()`` does not silently drop it. If a traceback terminated the program the
+    message is reported as ``✖`` instead, since the work never finished.
+    """
+    with suppress(Exception):
+        if _exiting_from_unhandled_exception():
+            Spinner.fail()
+        else:
+            Spinner.terminate(persist=True)
