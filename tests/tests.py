@@ -23,7 +23,7 @@ from unittest.mock import Mock, patch
 import pytest
 from rich.highlighter import ReprHighlighter
 
-from colours import LOGGER, Colour, ColourHandler
+from colours import Colour, ColourHandler, colour_logger
 
 
 @pytest.fixture
@@ -200,7 +200,7 @@ class TestLogLevels:
     def test_set_log_level_accepts_names_and_numeric_strings(level: str, expected: int) -> None:
         """Level names are case-insensitive (including the deprecated 'warn'), and numeric strings are parsed."""
         Colour.set_log_level(level)
-        assert LOGGER.level == expected
+        assert colour_logger.level == expected
 
     @staticmethod
     @pytest.mark.parametrize(
@@ -262,9 +262,9 @@ class TestOutput:
 
     @staticmethod
     def test_logger_is_the_documented_named_logger_and_does_not_propagate(caplog: pytest.LogCaptureFixture) -> None:
-        """Colour.logger, LOGGER, and getLogger('xanadu.colours') agree, and records are not duplicated via root."""
-        assert Colour.logger is LOGGER
-        assert LOGGER is logging.getLogger("xanadu.colours")
+        """Colour.logger, colour_logger, and getLogger('xanadu.colours') agree, and records are not duplicated via root."""
+        assert Colour.logger is colour_logger
+        assert colour_logger is logging.getLogger("xanadu.colours")
         Colour.warning("not duplicated")
         assert caplog.records == []
 
@@ -272,7 +272,7 @@ class TestOutput:
     def test_modify_log_format_replaces_colour_handlers(capsys: pytest.CaptureFixture[str]) -> None:
         """The new split and display flags take effect, and non-colours handlers are left alone."""
         foreign = logging.NullHandler()
-        LOGGER.addHandler(foreign)
+        colour_logger.addHandler(foreign)
         Colour.modify_log_format(show_level=True, stdout_filter_level="error")
         Colour.warning("warnmsg")
         Colour.error("errmsg")
@@ -283,8 +283,8 @@ class TestOutput:
         assert "errmsg" in err
         assert "warnmsg" not in err
         assert "errmsg" not in out
-        assert foreign in LOGGER.handlers
-        assert sum(isinstance(handler, ColourHandler) for handler in LOGGER.handlers) == 2
+        assert foreign in colour_logger.handlers
+        assert sum(isinstance(handler, ColourHandler) for handler in colour_logger.handlers) == 2
 
     @staticmethod
     def test_env_vars_set_level_and_split_at_import() -> None:
