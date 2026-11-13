@@ -15,7 +15,9 @@
 
 from .main import SPINNER_NAMES, Color, Colour, ColourHandler, Spinner, attach_split_handlers, colour_logger
 
+LOGGER = colour_logger  # ruff: ignore[non-empty-init-module]
 __all__ = [
+    "LOGGER",
     "SPINNER_NAMES",
     "Color",
     "Colour",

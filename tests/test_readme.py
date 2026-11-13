@@ -38,4 +38,4 @@ def test_readme_code_blocks():
         linecache.cache[filename] = (len(block), None, lines, filename)
 
         # Execute the code block with its own scope
-        exec(compile(block, filename, "exec"), {"__name__": "__main__"})  # noqa: S102
+        exec(compile(block, filename, "exec"), {"__name__": "__main__"})  # ruff: ignore[exec-builtin]

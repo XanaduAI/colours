@@ -43,7 +43,7 @@ try:
     from rich.spinner import SPINNERS
     from rich.spinner import Spinner as RichSpinner
 except ImportError:  # pragma: no cover
-    from rich._spinners import SPINNERS  # noqa: PLC2701
+    from rich._spinners import SPINNERS  # ruff: ignore[import-private-name]
     from rich.spinner import Spinner as RichSpinner
 
 width, _ = shutil.get_terminal_size()
@@ -200,7 +200,7 @@ class _PrintDescriptor:
             return rich_print
 
         @wraps(rich_print)
-        def colour_print(*args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        def colour_print(*args, **kwargs) -> None:  # ruff: ignore[missing-type-args, missing-type-kwargs]
             rich_print(*map(instance, args), **kwargs)
 
         return colour_print
@@ -225,14 +225,14 @@ class _PredefinedLogDescriptor:
         if instance is None:
 
             @wraps(log_method)
-            def log_func(msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            def log_func(msg: str, *args, **kwargs) -> None:  # ruff: ignore[missing-type-args, missing-type-kwargs]
                 if colour_logger.isEnabledFor(self.loglevel):
                     log_method(msg, *args, **kwargs)
 
             return log_func
 
         @wraps(log_method)
-        def log_func(msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        def log_func(msg: str, *args, **kwargs) -> None:  # ruff: ignore[missing-type-args, missing-type-kwargs]
             if colour_logger.isEnabledFor(self.loglevel):
                 log_method(instance(msg), *args, **{**kwargs, "extra": {"highlighter": None} | kwargs.get("extra", {})})
 
@@ -261,7 +261,7 @@ class _VersatileLogDescriptor:
         if instance is None:
 
             @wraps(colour_logger.log)
-            def log(level: int | str, msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            def log(level: int | str, msg: str, *args, **kwargs) -> None:  # ruff: ignore[missing-type-args, missing-type-kwargs]
                 # Use instance method to get proper error handling
                 loglevel: int = _parse_log_level(level) if isinstance(level, str) else level
                 if colour_logger.isEnabledFor(loglevel):
@@ -275,7 +275,7 @@ class _VersatileLogDescriptor:
             return log
 
         @wraps(colour_logger.log)
-        def log(level: int | str, msg: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        def log(level: int | str, msg: str, *args, **kwargs) -> None:  # ruff: ignore[missing-type-args, missing-type-kwargs]
             loglevel: int = _parse_log_level(level) if isinstance(level, str) else level
             if colour_logger.isEnabledFor(loglevel):
                 colour_logger.log(
@@ -310,7 +310,7 @@ class Colour(Enum):
     BLUE = "bold deep_sky_blue1"
     PURPLE = "bold magenta"
     DEFAULT = "bold default"
-    BOLD = "bold default"  # noqa: PIE796, alias
+    BOLD = "bold default"  # ruff: ignore[non-unique-enums]
     ITALIC = "bold italic"
 
     def __call__(self, string: Any) -> str:

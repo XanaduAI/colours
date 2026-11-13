@@ -93,14 +93,14 @@ select = [
     "YTT",
 ]
 ignore = [
-    "ANN401",
-    "COM812",
-    "D107",
-    "D203",
-    "D213",
-    "S404",
-    "S311",
-    "S603",
+    "any-type",
+    "missing-trailing-comma",
+    "undocumented-public-init",
+    "incorrect-blank-line-before-class",
+    "multi-line-summary-second-line",
+    "suspicious-subprocess-import",
+    "suspicious-non-cryptographic-random-usage",
+    "subprocess-without-shell-equals-true",
 ]
 
 [tool.ruff.lint.pylint]
@@ -111,4 +111,11 @@ max-args = 10
 mypy-init-return = true
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["SLF001", "INP001", "ANN201", "S101", "PLR6301", "PLR2004"]
+"tests/*" = [
+    "private-member-access",
+    "implicit-namespace-package",
+    "missing-return-type-public-function",
+    "assert",
+    "no-self-use",
+    "magic-value-comparison",
+]

@@ -26,10 +26,10 @@ from rich.markup import render
 
 from colours import SPINNER_NAMES, Colour, ColourHandler, Spinner, colour_logger
 from colours.main import (
-    _CUSTOM_SPINNERS,  # noqa: PLC2701
+    _CUSTOM_SPINNERS,  # ruff: ignore[import-private-name]
     SPINNERS,
-    _make_spinner,  # noqa: PLC2701
-    _terminate_spinner_at_exit,  # noqa: PLC2701
+    _make_spinner,  # ruff: ignore[import-private-name]
+    _terminate_spinner_at_exit,  # ruff: ignore[import-private-name]
 )
 
 
