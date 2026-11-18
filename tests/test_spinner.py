@@ -24,12 +24,12 @@ import pytest
 from rich.console import Console
 from rich.markup import render
 
-from colours import LOGGER, SPINNER_NAMES, Colour, ColourHandler, Spinner
+from colours import SPINNER_NAMES, Colour, ColourHandler, Spinner, colour_logger
 from colours.main import (
-    _CUSTOM_SPINNERS,  # noqa: PLC2701
+    _CUSTOM_SPINNERS,  # ruff: ignore[import-private-name]
     SPINNERS,
-    _make_spinner,  # noqa: PLC2701
-    _terminate_spinner_at_exit,  # noqa: PLC2701
+    _make_spinner,  # ruff: ignore[import-private-name]
+    _terminate_spinner_at_exit,  # ruff: ignore[import-private-name]
 )
 
 
@@ -249,14 +249,16 @@ class TestSpinnerTerminal:
     def test_live_renders_through_the_current_stdout_handler_console() -> None:
         """Sharing the handler's Console stops log lines landing on the spinner line; it is re-resolved per start."""
         Colour.modify_log_format()
-        stdout_console = next(h.console for h in LOGGER.handlers if isinstance(h, ColourHandler) and not h.console.stderr)
+        stdout_console = next(
+            h.console for h in colour_logger.handlers if isinstance(h, ColourHandler) and not h.console.stderr
+        )
         Spinner.start("sharing", name="dots")
         assert Spinner._live is not None
         assert Spinner._live.console is stdout_console
         assert Spinner._live.transient, "stop() must erase the frame that the ✔ line replaces"
         Spinner.terminate()
 
-        LOGGER.handlers = []
+        colour_logger.handlers = []
         Spinner.start("fallback", name="dots")
         assert Spinner._live is not None
         assert not Spinner._live.console.stderr
@@ -268,7 +270,7 @@ class TestSpinnerTerminal:
         stdout_hndlr.console = Console(force_terminal=True)
         stderr_hndlr = ColourHandler(level=logging.WARNING, stderr=True)
         stderr_hndlr.console = Console(stderr=True, force_terminal=True)
-        LOGGER.handlers = [stdout_hndlr, stderr_hndlr]
+        colour_logger.handlers = [stdout_hndlr, stderr_hndlr]
         before = len(stderr_hndlr.console._render_hooks)
         for _ in range(2):
             Spinner.start("working", name="dots")
@@ -289,7 +291,7 @@ class TestSpinnerTerminal:
             hndlr.console = shared
         redirected = ColourHandler()
         redirected.console = Console(stderr=True, force_terminal=False)
-        LOGGER.handlers = [logging.StreamHandler(), stdout_hndlr, *duplicates, redirected]
+        colour_logger.handlers = [logging.StreamHandler(), stdout_hndlr, *duplicates, redirected]
         Spinner.start("working", name="dots")
         assert Spinner._hooked == (shared,)
 
@@ -297,8 +299,8 @@ class TestSpinnerTerminal:
     def test_spinner_left_running_at_exit_is_persisted() -> None:
         """A real interpreter exit runs the hook, which persists the trailing message."""
         code = (
-            "import logging; from colours import LOGGER, Spinner; "
-            "LOGGER.setLevel(logging.DEBUG); Spinner.start('never stopped', name='dots')"
+            "import logging; from colours import colour_logger, Spinner; "
+            "colour_logger.setLevel(logging.DEBUG); Spinner.start('never stopped', name='dots')"
         )
         out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=30, check=True)
         assert "✔ never stopped" in out.stdout

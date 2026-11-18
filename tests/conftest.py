@@ -18,16 +18,16 @@ from collections.abc import Generator
 
 import pytest
 
-from colours import LOGGER
+from colours import colour_logger
 
 
 @pytest.fixture(autouse=True)
 def restore_logger() -> Generator[None, None, None]:
     """Undo any level or handler changes a test makes to the global colours logger."""
-    level, handlers = LOGGER.level, LOGGER.handlers[:]
+    level, handlers = colour_logger.level, colour_logger.handlers[:]
     yield
-    LOGGER.setLevel(level)
-    LOGGER.handlers = handlers
+    colour_logger.setLevel(level)
+    colour_logger.handlers = handlers
 
 
 @pytest.fixture
@@ -39,6 +39,6 @@ def log_records() -> list[logging.LogRecord]:
         def emit(self, record: logging.LogRecord) -> None:
             records.append(record)
 
-    LOGGER.setLevel(logging.DEBUG)
-    LOGGER.addHandler(_Capture())
+    colour_logger.setLevel(logging.DEBUG)
+    colour_logger.addHandler(_Capture())
     return records
