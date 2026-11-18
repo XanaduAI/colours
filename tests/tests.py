@@ -15,6 +15,7 @@
 
 import logging
 import os
+import re
 from collections.abc import Callable, Generator
 from subprocess import run
 from sys import executable
@@ -24,6 +25,13 @@ import pytest
 from rich.highlighter import ReprHighlighter
 
 from colours import Colour, ColourHandler, colour_logger
+
+# Patterns that identify each optional column Rich renders beside a log message.
+DISPLAY_COLUMNS = {
+    "show_level": r"\b(INFO|ERROR)\b",
+    "show_path": r"\b\w+\.py:\d+\b",
+    "show_time": r"\b\d{1,2}:\d{2}:\d{2}\b",
+}
 
 
 @pytest.fixture
@@ -110,9 +118,9 @@ class TestLogging:
 
     @staticmethod
     def test_class_methods_log_the_message_unstyled(log_records: list[logging.LogRecord]) -> None:
-        """Colour.debug/info/log pass the message and args through, leaving Rich's highlighter in charge."""
+        """Colour.debug/info/log pass the message, args, and extra through, leaving Rich's highlighter in charge."""
         Colour.debug("count: %d", 42)
-        Colour.info("info")
+        Colour.info("info", extra={"request_id": "abc"})
         Colour.log("warning", "named level")
         Colour.log(23, "custom level")
         assert _messages(log_records) == [
@@ -121,6 +129,7 @@ class TestLogging:
             (logging.WARNING, "named level"),
             (23, "custom level"),
         ]
+        assert vars(log_records[1])["request_id"] == "abc"
         assert all("highlighter" not in vars(record) for record in log_records)
 
     @staticmethod
@@ -174,18 +183,28 @@ class TestLogging:
         assert len(log_records) == 2
 
     @staticmethod
-    def test_user_extra_is_kept_and_may_override_the_highlighter(log_records: list[logging.LogRecord]) -> None:
-        """User extra fields reach the record, and a user highlighter wins over the styled default of None."""
+    @pytest.mark.parametrize(
+        "log",
+        [
+            Colour.blue.debug,
+            Colour.blue.info,
+            lambda msg, **kwargs: Colour.blue.log("info", msg, **kwargs),
+            Colour.warning,
+            Colour.error,
+            Colour.critical,
+        ],
+        ids=["member_debug", "member_info", "member_log", "warning", "error", "critical"],
+    )
+    def test_styled_methods_merge_user_extra(log: Callable[..., None], log_records: list[logging.LogRecord]) -> None:
+        """User extra fields reach the record, highlighting defaults to off, and a user highlighter wins."""
         highlighter = ReprHighlighter()
         extra = {"request_id": "abc"}
-        Colour.info("plain", extra=extra)
-        Colour.blue.log("info", "styled", extra=extra)
-        Colour.warning("custom", extra={"highlighter": highlighter})
-        plain, styled, custom = (vars(record) for record in log_records)
-        assert plain["request_id"] == styled["request_id"] == "abc"
-        assert "highlighter" not in plain
-        assert styled["highlighter"] is None
-        assert custom["highlighter"] is highlighter
+        log("default", extra=extra)
+        log("override", extra={"highlighter": highlighter})
+        default, override = (vars(record) for record in log_records)
+        assert default["request_id"] == "abc"
+        assert default["highlighter"] is None
+        assert override["highlighter"] is highlighter
         assert extra == {"request_id": "abc"}, "the caller's extra dict must not be mutated"
 
 
@@ -270,21 +289,31 @@ class TestOutput:
 
     @staticmethod
     def test_modify_log_format_replaces_colour_handlers(capsys: pytest.CaptureFixture[str]) -> None:
-        """The new split and display flags take effect, and non-colours handlers are left alone."""
+        """The new split threshold takes effect, and non-colours handlers are left alone."""
         foreign = logging.NullHandler()
         colour_logger.addHandler(foreign)
-        Colour.modify_log_format(show_level=True, stdout_filter_level="error")
+        Colour.modify_log_format(stdout_filter_level="error")
         Colour.warning("warnmsg")
         Colour.error("errmsg")
         out, err = capsys.readouterr()
-        assert "WARNING" in out
         assert "warnmsg" in out
-        assert "ERROR" in err
         assert "errmsg" in err
         assert "warnmsg" not in err
         assert "errmsg" not in out
         assert foreign in colour_logger.handlers
         assert sum(isinstance(handler, ColourHandler) for handler in colour_logger.handlers) == 2
+
+    @staticmethod
+    @pytest.mark.parametrize("flag", DISPLAY_COLUMNS)
+    def test_modify_log_format_shows_only_the_requested_column(flag: str, capsys: pytest.CaptureFixture[str]) -> None:
+        """Each display flag adds its column to both streams, and the other columns stay hidden."""
+        Colour.modify_log_format(**{flag: True})
+        Colour.info("outmsg")
+        Colour.error("errmsg")
+        out, err = capsys.readouterr()
+        for name, pattern in DISPLAY_COLUMNS.items():
+            for stream in (out, err):
+                assert bool(re.search(pattern, stream)) is (name == flag), f"{name} column in {stream!r}"
 
     @staticmethod
     def test_env_vars_set_level_and_split_at_import() -> None:
